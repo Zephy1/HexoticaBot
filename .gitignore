@@ -1,0 +1,8 @@
+/.idea
+/Input
+/Output
+/env.py
+/__pycache__
+/Database/__pycache__
+/Commands/__pycache__
+/Utils/__pycache__
