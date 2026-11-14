@@ -6,3 +6,7 @@
 /Database/__pycache__
 /Commands/__pycache__
 /Utils/__pycache__
+/Tests
+/Game/__pycache__
+/.DisabledCommands
+/Commands/Admin/__pycache__

@@ -6,6 +6,11 @@ import glob
 import json
 import os
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 from Utils import Variables
 from Utils import Logger
 
@@ -18,52 +23,25 @@ backupDelaySeconds = 4 * 60 * 60
 
 instanceLockFile = None
 
-def _LockSingleInstance() -> None:
+def LockSingleInstance() -> None:
     global instanceLockFile
     lockFile = open(f"{Variables.PERSISTENT_DB_FILE_PATH}.lock", "a")
     try:
         if os.name == "nt":
-            import msvcrt
             msvcrt.locking(lockFile.fileno(), msvcrt.LK_NBLCK, 1)
         else:
-            import fcntl
             fcntl.flock(lockFile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         lockFile.close()
         raise RuntimeError("Another bot is already using the database.")
     instanceLockFile = lockFile
 
-def _SplitUserDataBlobs(db) -> None:
-    for key, value in db.execute("SELECT key, value FROM data WHERE collection = 'userData' AND key NOT LIKE '%:%'").fetchall():
-        for dataType, dataValue in json.loads(value).items():
-            db.execute("INSERT OR REPLACE INTO data VALUES ('userData', ?, ?)", (f"{key}:{dataType}", json.dumps(dataValue)))
-        db.execute("DELETE FROM data WHERE collection = 'userData' AND key = ?", (key,))
-
-migrations = [_SplitUserDataBlobs]
-def _Migrate(db) -> None:
-    row = db.execute("SELECT value FROM data WHERE collection = 'meta' AND key = 'schemaVersion'").fetchone()
-    version = json.loads(row[0]) if row else 0
-    if version > len(migrations):
-        raise RuntimeError(f"{Variables.PERSISTENT_DB_FILE_PATH} is schema version {version}, this code only knows {len(migrations)}. Update the bot instead of downgrading.")
-    if version < len(migrations) and db.execute("SELECT 1 FROM data LIMIT 1").fetchone():
-        BackupDatabase(backupPath=os.path.join(Variables.PERSISTENT_DATA_BACKUPS_PATH, f"Persistent_before-schema-{version + 1}.db.premigration"))
-    for target in range(version, len(migrations)):
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            migrations[target](db)
-            db.execute("INSERT OR REPLACE INTO data VALUES ('meta', 'schemaVersion', ?)", (json.dumps(target + 1),))
-            db.execute("COMMIT")
-        except BaseException:
-            if db.in_transaction:
-                db.execute("ROLLBACK")
-            raise
-
 async def OpenDatabase() -> None:
     global database, readDatabase
     if database is not None:
         return
 
-    _LockSingleInstance()
+    LockSingleInstance()
     db = sqlite3.connect(Variables.PERSISTENT_DB_FILE_PATH, check_same_thread=False, isolation_level=None)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=FULL")
@@ -72,11 +50,6 @@ async def OpenDatabase() -> None:
     if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
         db.close()
         raise RuntimeError(f"{Variables.PERSISTENT_DB_FILE_PATH} is corrupted, load latest backup.")
-    try:
-        _Migrate(db)
-    except BaseException:
-        db.close()
-        raise
 
     readDatabase = sqlite3.connect(Variables.PERSISTENT_DB_FILE_PATH, check_same_thread=False, isolation_level=None)
     readDatabase.execute("PRAGMA query_only=ON")
@@ -87,20 +60,62 @@ async def LoadCollection(name: str) -> dict:
         rows = database.execute("SELECT key, value FROM data WHERE collection = ?", (name,)).fetchall()
     return {key: json.loads(value) for key, value in rows}
 
-def _ReadPrefix(name: str, prefix: str) -> dict:
+def ReadPrefixBlocking(name: str, prefix: str) -> dict:
     upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
     with readDatabaseLock:
         rows = readDatabase.execute("SELECT key, value FROM data WHERE collection = ? AND key >= ? AND key < ?", (name, prefix, upper)).fetchall()
     return {key[len(prefix):]: value for key, value in rows}
 
 async def ReadPrefix(name: str, prefix: str) -> dict:
-    return await asyncio.to_thread(_ReadPrefix, name, prefix)
+    return await asyncio.to_thread(ReadPrefixBlocking, name, prefix)
 
-async def WriteRows(rows: list) -> None:
+def ReadRowBlocking(name: str, key: str) -> str | None:
+    with readDatabaseLock:
+        row = readDatabase.execute("SELECT value FROM data WHERE collection = ? AND key = ?", (name, key)).fetchone()
+    return None if row is None else row[0]
+
+async def ReadRow(name: str, key: str) -> str | None:
+    return await asyncio.to_thread(ReadRowBlocking, name, key)
+
+def SearchPrefixBlocking(
+    name: str,
+    prefix: str,
+    text: str,
+    limit: int,
+    byRarity: bool,
+) -> list[tuple[str, str]]:
+    upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+    query = "SELECT key, value FROM data WHERE collection = ? AND key >= ? AND key < ?"
+    values: list = [name, prefix, upper]
+    if text:
+        query += " AND instr(lower(substr(key, ?)), ?) > 0"
+        values += [len(prefix) + 1, text.lower()]
+    query += " ORDER BY key"
+    if not byRarity:
+        query += " LIMIT ?"
+        values.append(limit)
+    with readDatabaseLock:
+        rows = readDatabase.execute(query, values).fetchall()
+    found = [(key[len(prefix):], value) for key, value in rows]
+    if byRarity:
+        found.sort(key=lambda row: (json.loads(row[1])["rarity"], row[0]), reverse=True)
+        found = found[:limit]
+    return found
+
+async def SearchPrefix(
+    name: str,
+    prefix: str,
+    text: str,
+    limit: int,
+    byRarity: bool = False,
+) -> list[tuple[str, str]]:
+    return await asyncio.to_thread(SearchPrefixBlocking, name, prefix, text, limit, byRarity)
+
+async def WriteRows(rows: list[tuple[str, str, str | None]]) -> None:
     if rows:
-        await asyncio.to_thread(_WriteRows, rows)
+        await asyncio.to_thread(WriteRowsBlocking, rows)
 
-def _WriteRows(rows: list) -> None:
+def WriteRowsBlocking(rows: list[tuple[str, str, str | None]]) -> None:
     with databaseLock:
         database.execute("BEGIN IMMEDIATE")
         try:
@@ -115,7 +130,7 @@ def _WriteRows(rows: list) -> None:
                 database.execute("ROLLBACK")
             raise
 
-def _ToRows(name: str, values: dict) -> list:
+def ToRows(name: str, values: dict) -> list:
     return [(name, key, None if value is Deleted else json.dumps(value)) for key, value in values.items()]
 
 async def WriteValues(name: str, values: dict) -> None:
@@ -124,7 +139,7 @@ async def WriteValues(name: str, values: dict) -> None:
 
 def WriteValuesBlocking(name: str, values: dict) -> None:
     if values:
-        _WriteRows(_ToRows(name, values))
+        WriteRowsBlocking(ToRows(name, values))
 
 def BackupDatabase(keep: int = 12, backupPath: str | None = None) -> None:
     backupPrefix = os.path.join(Variables.PERSISTENT_DATA_BACKUPS_PATH, "Persistent")

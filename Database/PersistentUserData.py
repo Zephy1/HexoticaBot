@@ -4,12 +4,13 @@ import json
 import time
 
 from Database import PersistentData
+from Utils import Utils
 
 idleEvictSeconds = 15 * 60
 evictCheckSeconds = 60
 
-persistentUserData = {}
-lastAccess = {}
+persistentUserData: dict[Utils.UserScope, dict[str, str]] = {}
+lastAccess: dict[Utils.UserScope, float] = {}
 userLocks = collections.defaultdict(asyncio.Lock)
 
 async def LoadPersistentUserData():
@@ -19,58 +20,62 @@ async def EvictLoop():
     while True:
         await asyncio.sleep(evictCheckSeconds)
         cutoff = time.monotonic() - idleEvictSeconds
-        for userIDString in [key for key, seen in lastAccess.items() if seen < cutoff and not userLocks[key].locked()]:
-            persistentUserData.pop(userIDString, None)
-            del lastAccess[userIDString]
+        for scope in [key for key, seen in lastAccess.items() if seen < cutoff and not userLocks[key].locked()]:
+            persistentUserData.pop(scope, None)
+            del lastAccess[scope]
 
-async def _Load(userIDString: str) -> dict:
-    userData = persistentUserData.get(userIDString)
+async def LoadLocked(scope: Utils.UserScope) -> dict:
+    userData = persistentUserData.get(scope)
     if userData is None:
-        userData = await PersistentData.ReadPrefix("userData", f"{userIDString}:")
-        persistentUserData[userIDString] = userData
-    lastAccess[userIDString] = time.monotonic()
+        userData = await PersistentData.ReadPrefix("userData", f"{scope}:")
+        persistentUserData[scope] = userData
+    lastAccess[scope] = time.monotonic()
     return userData
 
-async def _Read(userIDString: str) -> dict:
-    userData = persistentUserData.get(userIDString)
+async def Read(scope: Utils.UserScope) -> dict:
+    userData = persistentUserData.get(scope)
     if userData is None:
-        async with userLocks[userIDString]:
-            return await _Load(userIDString)
-    lastAccess[userIDString] = time.monotonic()
+        async with userLocks[scope]:
+            return await LoadLocked(scope)
+    lastAccess[scope] = time.monotonic()
     return userData
 
-async def GetAllUserData(userID: int):
-    return {dataType: json.loads(row) for dataType, row in (await _Read(str(userID))).items()}
-async def GetUserDataType(userID: int, dataType: str, defaultValue=None):
-    row = (await _Read(str(userID))).get(dataType)
+async def GetAllUserData(scope: Utils.UserScope):
+    return {dataType: json.loads(row) for dataType, row in (await Read(scope)).items()}
+async def GetUserDataType(
+    scope: Utils.UserScope,
+    dataType: str,
+    defaultValue=None,
+):
+    row = (await Read(scope)).get(dataType)
     return json.loads(row) if row is not None else defaultValue
 async def UpdateUserData(
-    userID: int,
+    scope: Utils.UserScope,
     dataType: str,
     newValue,
     nestedDataType: str | None = None,
 ) -> None:
-    await asyncio.shield(_Apply(str(userID), dataType, lambda current: newValue, nestedDataType))
+    await asyncio.shield(Apply(scope, dataType, lambda current: newValue, nestedDataType))
 async def ModifyUserData(
-    userID: int,
+    scope: Utils.UserScope,
     dataType: str,
     modifier,
     nestedDataType: str | None = None,
     defaultValue=None,
 ):
-    return await asyncio.shield(_Apply(
-        str(userID), dataType,
+    return await asyncio.shield(Apply(
+        scope, dataType,
         lambda current: modifier(current if current is not None else json.loads(json.dumps(defaultValue))),
         nestedDataType,
     ))
-async def _Apply(
-    userIDString: str,
+async def Apply(
+    scope: Utils.UserScope,
     dataType: str,
     modifier,
     nestedDataType: str | None,
 ):
-    async with userLocks[userIDString]:
-        userData = await _Load(userIDString)
+    async with userLocks[scope]:
+        userData = await LoadLocked(scope)
         oldRow = userData.get(dataType)
         root = json.loads(oldRow) if oldRow is not None else None
 
@@ -89,7 +94,7 @@ async def _Apply(
         if newRow == oldRow:
             return newValue
 
-        await PersistentData.WriteRows([("userData", f"{userIDString}:{dataType}", newRow)])
+        await PersistentData.WriteRows([("userData", f"{scope}:{dataType}", newRow)])
         if newRow is None:
             del userData[dataType]
         else:

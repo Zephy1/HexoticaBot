@@ -6,14 +6,28 @@ import asyncio
 import discord
 import time
 
+from Utils.Translation import Say, Text
 from Utils import Variables
 
 def MakeNameSafe(name):
     if name is None:
-        return f"Unknown"
+        return "Unknown"
     if type(name) == str:
         name = name.encode('ascii', 'replace').decode('ascii')
     return str(name).replace("_", "\\_")
+
+sharedSession: aiohttp.ClientSession | None = None
+async def GetSharedSession() -> aiohttp.ClientSession:
+    global sharedSession
+    if sharedSession is None or sharedSession.closed:
+        sharedSession = aiohttp.ClientSession()
+    return sharedSession
+
+async def CloseSharedSession():
+    global sharedSession
+    if sharedSession is not None and not sharedSession.closed:
+        await sharedSession.close()
+    sharedSession = None
 
 async def SendInteractionMessage(
     interaction: discord.Interaction,
@@ -25,7 +39,9 @@ async def SendInteractionMessage(
     view: discord.ui.View = discord.utils.MISSING,
     allowed_mentions: discord.AllowedMentions = discord.utils.MISSING
 ):
-    if embed is None and message is None:
+    noEmbed = embed is None or embed is discord.utils.MISSING
+    noAttachments = discordFile is discord.utils.MISSING and discordFiles is discord.utils.MISSING
+    if message is None and noEmbed and noAttachments and view is discord.utils.MISSING:
         message = "Error: No message or embed provided."
 
     try:
@@ -62,10 +78,10 @@ async def EditInteractionMessage(
 
 async def LogInteractionError(
     interaction: discord.Interaction,
-    client: discord.client,
+    client: discord.Client,
     message: str,
 ):
-    await SendInteractionMessage(interaction, message="Something went wrong. The error has been logged.", ephemeral=True)
+    await SendInteractionMessage(interaction, message=Say(Text.COMMAND_ERROR, error=message), ephemeral=True)
     await LogError(interaction, client, message)
 
 def GetUserInfoFromInteraction(interaction):
@@ -99,7 +115,7 @@ def GetCommandInfoFromInteraction(
     return commandInfo
 guildNameTtlSeconds = 60 * 60
 guildNameFailTtlSeconds = 10 * 60
-_guildNames = {}
+guildNames = {}
 async def GetGuildInfoFromInteraction(
     interaction: discord.Interaction,
     client: discord.Client,
@@ -107,13 +123,13 @@ async def GetGuildInfoFromInteraction(
     guild = interaction.guild
     guildName = "DM"
     if guild:
-        cached = _guildNames.get(guild.id)
+        cached = guildNames.get(guild.id)
         if cached is None or cached[0] < time.monotonic():
             try:
                 name = (await client.fetch_guild_preview(guild.id)).name
             except Exception:
                 name = None
-            cached = _guildNames[guild.id] = (time.monotonic() + (guildNameTtlSeconds if name else guildNameFailTtlSeconds), name)
+            cached = guildNames[guild.id] = (time.monotonic() + (guildNameTtlSeconds if name else guildNameFailTtlSeconds), name)
         guildName = cached[1] or guild.name
 
     guildID = guild.id if guild else "Unknown"
@@ -157,48 +173,55 @@ webhookBackoffSeconds = 30
 webhookQueueMaxEmbeds = 1000
 webhookMessageMaxEmbeds = 10
 webhookMessageMaxChars = 6000
-_webhookQueues = {}
-_webhookBlockedUntil = {}
-_webhookDropped = 0
+webhookQueues = {}
+webhookBlockedUntil = {}
+webhookDropped = 0
 
-def _FitEmbed(embedData: dict) -> dict:
+def FitEmbed(embedData: dict) -> dict:
     budget = 6000 - len(str(embedData.get("title", "")))
     fields = []
     for field in embedData.get("fields", [])[:25]:
         name = str(field.get("name", ""))[:256]
         value = str(field.get("value", ""))[:1024][:max(budget - len(name), 0)]
         budget -= len(name) + len(value)
-        fields.append({**field, "name": name, "value": value})
-    return {**embedData, "fields": fields}
+        fields.append({
+            **field,
+            "name": name,
+            "value": value,
+        })
+    return {
+        **embedData,
+        "fields": fields,
+    }
 
 async def SendToWebhooks(
     webhooksList: list[str],
     webhookUsername: str,
     embedData: dict,
 ):
-    global _webhookDropped
+    global webhookDropped
     if not webhooksList:
         return
 
-    embedData = _FitEmbed(embedData)
+    embedData = FitEmbed(embedData)
     size = len(str(embedData.get("title", ""))) + sum(len(field["name"]) + len(field["value"]) for field in embedData["fields"])
     for url in webhooksList:
-        queue = _webhookQueues.setdefault(url, collections.deque(maxlen=webhookQueueMaxEmbeds))
+        queue = webhookQueues.setdefault(url, collections.deque(maxlen=webhookQueueMaxEmbeds))
         if len(queue) == queue.maxlen:
-            _webhookDropped += 1
+            webhookDropped += 1
         queue.append((webhookUsername, embedData, size))
 
 async def WebhookSenderLoop():
-    global _webhookDropped
+    global webhookDropped
     while True:
         await asyncio.sleep(webhookSendDelaySeconds)
-        if _webhookDropped:
-            print(f"Dropped {_webhookDropped} queued log embeds (webhook too slow or rate limited).")
-            _webhookDropped = 0
-        await asyncio.gather(*(_SendBatch(url, queue) for url, queue in list(_webhookQueues.items())), return_exceptions=True)
+        if webhookDropped:
+            print(f"Dropped {webhookDropped} queued log embeds (webhook too slow or rate limited).")
+            webhookDropped = 0
+        await asyncio.gather(*(SendBatch(url, queue) for url, queue in list(webhookQueues.items())), return_exceptions=True)
 
-async def _SendBatch(webhookURL: str, queue: collections.deque):
-    if not queue or _webhookBlockedUntil.get(webhookURL, 0) > time.monotonic():
+async def SendBatch(webhookURL: str, queue: collections.deque):
+    if not queue or webhookBlockedUntil.get(webhookURL, 0) > time.monotonic():
         return
 
     username = queue[0][0]
@@ -209,20 +232,23 @@ async def _SendBatch(webhookURL: str, queue: collections.deque):
 
     retry = False
     try:
-        session = await Utils.GetSharedSession()
-        webhookData = {"embeds": [item[1] for item in batch], "username": username}
+        session = await GetSharedSession()
+        webhookData = {
+            "embeds": [item[1] for item in batch],
+            "username": username,
+        }
         async with session.post(webhookURL, json=webhookData, timeout=aiohttp.ClientTimeout(total=15)) as response:
             if response.status == 429 or response.status >= 500:
                 try:
                     backoff = float(response.headers.get("Retry-After", webhookBackoffSeconds))
                 except ValueError:
                     backoff = webhookBackoffSeconds
-                _webhookBlockedUntil[webhookURL] = time.monotonic() + min(backoff, 3600)
+                webhookBlockedUntil[webhookURL] = time.monotonic() + min(backoff, 3600)
                 retry = True
             elif response.status != 204:
                 print(f"Error sending to webhook: {response.status} - {await response.text()}")
     except (aiohttp.ClientError, asyncio.TimeoutError):
-        _webhookBlockedUntil[webhookURL] = time.monotonic() + webhookBackoffSeconds
+        webhookBlockedUntil[webhookURL] = time.monotonic() + webhookBackoffSeconds
         retry = True
     except Exception as e:
         print(f"Error sending to webhook: {e}")
@@ -233,7 +259,7 @@ def WriteToLogFile(
     filePath: str,
     logMessage: str,
 ):
-    with open(filePath, "a") as logFile:
+    with open(filePath, "a", encoding="utf-8") as logFile:
         logFile.write(logMessage + "\n")
 
 def SafeField(
@@ -246,8 +272,12 @@ def SafeField(
 
     value = value if value else "-"
     chunks = [value[i:i+limit] for i in range(0, len(value), limit)]
-    for i, chunk in enumerate(chunks):
-        fields.append({"name": name or "-", "value": chunk, "inline": inline})
+    for chunk in chunks:
+        fields.append({
+            "name": name or "-",
+            "value": chunk,
+            "inline": inline,
+        })
 
     return fields
 
@@ -265,31 +295,86 @@ async def LogError(
         errorTraceback = traceback.format_exc()
 
         fields = [
-            {"name": "__User__", "value": ""},
-            {"name": "Username", "value": userInfo['userDisplayName'], "inline": True},
-            {"name": "User Tag", "value": userInfo['userName'], "inline": True},
-            {"name": "User ID", "value": userInfo['userID'], "inline": True},
-            {"name": "", "value": ""},
-            {"name": "__Channel__", "value": ""},
-            {"name": "Channel Name", "value": channelInfo['channelName'], "inline": True},
-            {"name": "Channel ID", "value": channelInfo['channelID'], "inline": True},
-            {"name": "", "value": ""},
-            {"name": "Guild Name", "value": guildInfo['guildName'], "inline": True},
-            {"name": "Guild ID", "value": guildInfo['guildID'], "inline": True},
-            {"name": "", "value": ""},
-            {"name": "__Command__", "value": ""},
+            {
+                "name": "__User__",
+                "value": "",
+            },
+            {
+                "name": "Username",
+                "value": userInfo['userDisplayName'],
+                "inline": True,
+            },
+            {
+                "name": "User Tag",
+                "value": userInfo['userName'],
+                "inline": True,
+            },
+            {
+                "name": "User ID",
+                "value": userInfo['userID'],
+                "inline": True,
+            },
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "__Channel__",
+                "value": "",
+            },
+            {
+                "name": "Channel Name",
+                "value": channelInfo['channelName'],
+                "inline": True,
+            },
+            {
+                "name": "Channel ID",
+                "value": channelInfo['channelID'],
+                "inline": True,
+            },
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "Guild Name",
+                "value": guildInfo['guildName'],
+                "inline": True,
+            },
+            {
+                "name": "Guild ID",
+                "value": guildInfo['guildID'],
+                "inline": True,
+            },
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "__Command__",
+                "value": "",
+            },
         ]
         fields.extend(SafeField("Command Name", commandInfo['commandName'], True))
         fields.extend(SafeField("Command Options", str(commandInfo['commandOptions']), True))
         fields.extend(SafeField("Copyable Command", commandInfo['copyableCommand']))
         fields.extend([
-            {"name": "", "value": ""},
-            {"name": "__Error__", "value": ""},
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "__Error__",
+                "value": "",
+            },
         ])
         fields.extend(SafeField("Error Message", str(message)))
         fields.extend(SafeField("Error Traceback", str(errorTraceback)[-3000:]))
         fields.extend([
-            {"name": "", "value": ""}
+            {
+                "name": "",
+                "value": "",
+            }
         ])
 
         embedData = {
@@ -331,17 +416,26 @@ async def LogHeadlessError(message: str):
         errorTraceback = traceback.format_exc()
 
         fields = [
-            {"name": "", "value": ""},
-            {"name": "__Error__", "value": ""},
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "__Error__",
+                "value": "",
+            },
         ]
         fields.extend(SafeField("Error Message", str(message)))
         fields.extend(SafeField("Error Traceback", str(errorTraceback)[-3000:]))
         fields.extend([
-            {"name": "", "value": ""}
+            {
+                "name": "",
+                "value": "",
+            }
         ])
 
         embedData = {
-            "title": f"Runtime Error",
+            "title": "Runtime Error",
             "color": Variables.defaultColorHex,
             "fields": fields,
         }
@@ -374,23 +468,83 @@ async def LogCommandUsage(
             "title": f"{userInfo['userDisplayName']} Used Command /{commandInfo['commandName']}",
             "color": Variables.defaultColorHex,
             "fields": [
-                {"name": "__User__", "value": ""},
-                {"name": "Username", "value": userInfo['userDisplayName'], "inline": True},
-                {"name": "User Tag", "value": userInfo['userName'], "inline": True},
-                {"name": "User ID", "value": userInfo['userID'], "inline": True},
-                {"name": "", "value": ""},
-                {"name": "__Channel__", "value": ""},
-                {"name": "Channel Name", "value": channelInfo['channelName'], "inline": True},
-                {"name": "Channel ID", "value": channelInfo['channelID'], "inline": True},
-                {"name": "", "value": ""},
-                {"name": "Guild Name", "value": guildInfo['guildName'], "inline": True},
-                {"name": "Guild ID", "value": guildInfo['guildID'], "inline": True},
-                {"name": "", "value": ""},
-                {"name": "__Command__", "value": ""},
-                {"name": "Command Name", "value": commandInfo['commandName'], "inline": True},
-                {"name": "Command Options", "value": str(commandInfo['commandOptions']), "inline": True},
-                {"name": "Copyable Command", "value": commandInfo['copyableCommand']},
-                {"name": "", "value": ""},
+                {
+                    "name": "__User__",
+                    "value": "",
+                },
+                {
+                    "name": "Username",
+                    "value": userInfo['userDisplayName'],
+                    "inline": True,
+                },
+                {
+                    "name": "User Tag",
+                    "value": userInfo['userName'],
+                    "inline": True,
+                },
+                {
+                    "name": "User ID",
+                    "value": userInfo['userID'],
+                    "inline": True,
+                },
+                {
+                    "name": "",
+                    "value": "",
+                },
+                {
+                    "name": "__Channel__",
+                    "value": "",
+                },
+                {
+                    "name": "Channel Name",
+                    "value": channelInfo['channelName'],
+                    "inline": True,
+                },
+                {
+                    "name": "Channel ID",
+                    "value": channelInfo['channelID'],
+                    "inline": True,
+                },
+                {
+                    "name": "",
+                    "value": "",
+                },
+                {
+                    "name": "Guild Name",
+                    "value": guildInfo['guildName'],
+                    "inline": True,
+                },
+                {
+                    "name": "Guild ID",
+                    "value": guildInfo['guildID'],
+                    "inline": True,
+                },
+                {
+                    "name": "",
+                    "value": "",
+                },
+                {
+                    "name": "__Command__",
+                    "value": "",
+                },
+                {
+                    "name": "Command Name",
+                    "value": commandInfo['commandName'],
+                    "inline": True,
+                },
+                {
+                    "name": "Command Options",
+                    "value": str(commandInfo['commandOptions']),
+                    "inline": True,
+                },
+                {
+                    "name": "Copyable Command",
+                    "value": commandInfo['copyableCommand'],
+                },
+                {
+                    "name": "",
+                    "value": "",
+                },
             ],
         }
 
@@ -421,15 +575,47 @@ async def LogRequest(
         "title": f"{userInfo['userDisplayName']} Submitted {requestType} Request",
         "color": Variables.defaultColorHex,
         "fields": [
-            {"name": "__User__", "value": ""},
-            {"name": "Username", "value": userInfo['userDisplayName'], "inline": True},
-            {"name": "User Tag", "value": userInfo['userName'], "inline": True},
-            {"name": "User ID", "value": userInfo['userID'], "inline": True},
-            {"name": "", "value": ""},
-            {"name": "__Request__", "value": ""},
-            {"name": "Request Type", "value": requestType, "inline": True},
-            {"name": "Request Data", "value": str(requestData), "inline": True},
-            {"name": "", "value": ""},
+            {
+                "name": "__User__",
+                "value": "",
+            },
+            {
+                "name": "Username",
+                "value": userInfo['userDisplayName'],
+                "inline": True,
+            },
+            {
+                "name": "User Tag",
+                "value": userInfo['userName'],
+                "inline": True,
+            },
+            {
+                "name": "User ID",
+                "value": userInfo['userID'],
+                "inline": True,
+            },
+            {
+                "name": "",
+                "value": "",
+            },
+            {
+                "name": "__Request__",
+                "value": "",
+            },
+            {
+                "name": "Request Type",
+                "value": requestType,
+                "inline": True,
+            },
+            {
+                "name": "Request Data",
+                "value": str(requestData),
+                "inline": True,
+            },
+            {
+                "name": "",
+                "value": "",
+            },
         ],
     }
 
