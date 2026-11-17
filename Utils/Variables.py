@@ -69,6 +69,7 @@ class Setting(StrEnum):
     BASE_ROLL_OVERFLOW = "baseRollOverflow"
     BONUS_COINS_CHANCE = "bonusCoinsChance"
     SELL_COIN_RATE = "sellCoinRate"
+    BONUS_COIN_RATE = "bonusCoinRate"
     SHOWCASE_INCOME_RATE = "showcaseIncomeRate"
     STARTING_SHOWCASE_SLOTS = "startingShowcaseSlots"
     STARTING_EARNING_SHOWCASE_SLOTS = "startingEarningShowcaseSlots"

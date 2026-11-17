@@ -219,6 +219,8 @@ class Text(StrEnum):
     SETTING_BONUS_COINS_CHANCE_DESCRIPTION = "Chance that a snipe also comes with bonus coins."
     SETTING_SELL_COIN_RATE_LABEL = "Sell Coin Rate"
     SETTING_SELL_COIN_RATE_DESCRIPTION = "Amount of coins each rarity point is worth when selling items."
+    SETTING_BONUS_COIN_RATE_LABEL = "Bonus Coin Rate"
+    SETTING_BONUS_COIN_RATE_DESCRIPTION = "Amount of coins each rarity point is worth in a snipe's bonus coins."
     SETTING_STARTING_SHOWCASE_SLOTS_LABEL = "Starting Showcase Slots"
     SETTING_STARTING_SHOWCASE_SLOTS_DESCRIPTION = "Default number of showcase slots."
     SETTING_STARTING_EARNING_SHOWCASE_SLOTS_LABEL = "Starting Earning Showcase Slots"
