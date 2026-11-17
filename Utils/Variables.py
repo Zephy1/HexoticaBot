@@ -44,6 +44,7 @@ ERROR_LOG_FILE_PATH = os.path.join(LOGS_PATH, "ErrorLog.txt")
 REQUESTS_LOG_FILE_PATH = os.path.join(LOGS_PATH, "RequestsLog.txt")
 
 ITEM_LISTS_PATH = os.path.join(INPUT_PATH, "ItemLists")
+ARMOR_IMAGES_PATH = os.path.join(INPUT_PATH, "Images")
 ITEM_LIST_FILE_PATH = os.path.join(ITEM_LISTS_PATH, "GeneratedItems.jsonl")
 ITEM_LIST_INDEX_FILE_PATH = os.path.join(ITEM_LISTS_PATH, "GeneratedItems.db")
 

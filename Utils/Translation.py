@@ -100,7 +100,19 @@ class Text(StrEnum):
     # /roll
     ROLL_DESCRIPTION = "Spend 1 roll to generate a snipe."
     ROLL_NO_PERMISSION = "Failed to send messages in this channel."
-    ROLL_FOOTER = "{BOT_FOOTER} • {rolls} roll{s} left"
+    ROLL_HEADER = "## {star}{title} - Rarity {rarity}"
+    ROLL_CRAFT = "**{method}**{source}{dyes}{mods}"
+    ROLL_CRAFT_FROM = " from {source}"
+    ROLL_DETAIL = " - {text}"
+    ROLL_CRAFT_MODS = "\n{mods}"
+    ROLL_DYE = "+{count} {dye}"
+    ROLL_DYE_ADVANCED = "{dyes} (Advanced)"
+    ROLL_DYE_ADVANCED_STEP = "#{number}: {dyes}"
+    ROLL_DYE_ADVANCED_STEPS = "Advanced {steps}"
+    ROLL_MOD = "{sign}{value:g}% {label}"
+    ROLL_MOD_SEPARATOR = ", "
+    ROLL_FOOTER = "-# {BOT_FOOTER} • {rolls}<t:{timestamp}:s>"
+    ROLL_FOOTER_ROLLS = "{rolls} roll{s} left • "
 
     # /admin
     ADMIN_GROUP_DESCRIPTION = "Admin only commands."

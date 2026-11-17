@@ -4,8 +4,10 @@ import discord
 import asyncio
 import random
 import time
+import io
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from string import capwords
 from enum import StrEnum
 
 from Utils.Translation import Say, Text
@@ -15,6 +17,7 @@ from Database import Atomic
 from Utils import Variables
 from Game import Profiles
 from Game import Upgrades
+from Game import RollCard
 from Utils import Logger
 from Utils import Utils
 from Utils import Views
@@ -27,7 +30,6 @@ sendRetryDelaySeconds = 2
 drops: dict[Utils.MessageID, "Drop"] = {}
 sendSemaphore = asyncio.Semaphore(8)
 shuttingDown = False
-textBudget = 3800
 noMentions = discord.AllowedMentions.none()
 
 class DropState(StrEnum):
@@ -52,6 +54,7 @@ class Drop:
     state: DropState = DropState.OPEN
     message: discord.Message | None = None
     bonusCoins: Utils.Coins = 0
+    bonusLoot: list[tuple[str, int, int, str]] = field(default_factory=list)
 
     @property
     def bundles(self) -> list[Lists.DropBundle]:
@@ -106,73 +109,106 @@ def ReleaseReservations(drop: Drop) -> None:
     for bundle in drop.bundles:
         Lists.ReleaseBundle(drop.guildID, bundle)
 
-def PieceLine(piece: Lists.BundlePiece, detailed: bool = True) -> str:
-    craft = Items.CraftText(piece.craft).replace("\n", "\n  ") if detailed else ""
-    line = Say(Text.PIECE_LINE, name=piece.name, hex=piece.hex, rarity=Items.FormatRarity(piece.rarity))
-    return line + (Say(Text.PIECE_CRAFT, craft=craft) if craft else "")
-
 def BundleTitle(drop: Drop, bundle: Lists.DropBundle) -> str:
     if bundle is drop.bundle:
         return bundle.name
     return Say(Text.BUNDLE_BONUS_VOID, name=bundle.name.lower()) if bundle.void else Say(Text.BUNDLE_BONUS_SET, name=bundle.name)
 
-def BundleLines(drop: Drop, bundle: Lists.DropBundle, detailed: bool = True) -> list[str]:
-    lines = [Say(Text.BUNDLE_HEADER, title=BundleTitle(drop, bundle), rarity=Items.FormatRarity(bundle.rarity))]
-    if bundle.info:
-        lines.append(Items.SetText(bundle.info))
-    lines.extend(PieceLine(piece, detailed) for piece in bundle.pieces)
-    return lines
+def Byline(drop: Drop, userID: Utils.MemberID) -> str:
+    return Say(Text.ROLLED_BY if drop.dropType is DropType.ROLL else Text.CLAIMED_BY, userID=userID)
 
 def BundleColor(bundles: list[Lists.DropBundle]) -> discord.Color:
     best = max((piece for bundle in bundles for piece in bundle.pieces), key=lambda piece: piece.rarity)
     return discord.Color(Utils.MinMaxHexInt(int(best.hex, 16)))
 
-def DropLayout(drop: Drop) -> discord.ui.LayoutView:
-    bundle = drop.bundle
-    special = IsSpecial(drop.guildID, bundle)
-    lines = "\n".join(PieceLine(piece) for piece in bundle.pieces)
-    description = Say(Text.DROP_DESCRIPTION, rarity=Items.FormatRarity(bundle.rarity), setText=Items.SetText(bundle.info), lines=lines)
-    if special:
-        color = discord.Color.gold()
-    else:
-        color = BundleColor([bundle])
-    return Layout(color, Say(Text.DROP_HEADER, star=Say(Text.SPECIAL_STAR) if special else "", name=bundle.name), [(SetImageURL(bundle), description[:textBudget])], claimable=True)
+def RollBundleHead(drops: list[Drop], drop: Drop, bundle: Lists.DropBundle, expired: bool) -> str:
+    title = capwords(BundleTitle(drop, bundle)).removesuffix(" Set")
+    if expired:
+        title = Say(Text.TITLE_EXPIRED, title=title)
+    if len(drops) > 1 and bundle is drop.bundle:
+        title = Say(Text.DOUBLE_ROLL_LINE if drop is not drops[0] else Text.ROLL_LINE, line=title)
+    return Say(
+        Text.ROLL_HEADER,
+        star=Say(Text.SPECIAL_STAR) + " " if IsSpecial(drop.guildID, bundle) else "",
+        title=title,
+        rarity=Items.FormatRarity(bundle.rarity),
+    )
 
-def ClaimedSections(drops: list[Drop], detailed: bool) -> list[tuple[str | None, str]]:
-    sections = []
-    for number, drop in enumerate(drops, start=1):
-        for target in drop.bundles:
-            lines = BundleLines(drop, target, detailed)
-            if len(drops) > 1 and target is drop.bundle:
-                lines[0] = Say(Text.DOUBLE_ROLL_LINE if number > 1 else Text.ROLL_LINE, line=lines[0])
-            sections.append((SetImageURL(target), "\n".join(lines)))
-        if drop.bonusCoins:
-            image, text = sections[-1]
-            sections[-1] = (image, Say(Text.CLAIMED_BONUS_COINS, text=text, coins=Utils.FormatNumber(drop.bonusCoins)))
-    return sections
+def LootHeader(drop: Drop) -> str:
+    return Say(Text.BONUS_LOOT_HEADER, coins=Utils.FormatNumber(drop.bonusCoins))
 
-def ClaimedContent(drops: list[Drop], userID: Utils.MemberID) -> tuple[discord.Color, str, list[tuple[str | None, str]]]:
-    special = any(IsSpecial(drop.guildID, drop.bundle) for drop in drops)
-    star = Say(Text.SPECIAL_STAR) if special else ""
-    name = drops[0].bundle.name if len(drops) == 1 else Say(Text.DOUBLE_ROLL)
-    header = Say(Text.CLAIMED_HEADER, star=star, name=name, userID=userID)
-    for detailed in (True, False):
-        sections = ClaimedSections(drops, detailed)
-        if len(header) + sum(len(text) for _, text in sections) <= textBudget:
-            break
-    return discord.Color.gold() if special else BundleColor([target for drop in drops for target in drop.bundles]), header, sections
+def Footer(rolls: int | None = None) -> str:
+    return Say(
+        Text.ROLL_FOOTER,
+        BOT_FOOTER=Variables.footerText,
+        rolls=Say(Text.ROLL_FOOTER_ROLLS, rolls=rolls, s=Utils.PluralS(rolls)) if rolls is not None else "",
+        timestamp=int(time.time()),
+    )
 
-def ClaimedLayout(drops: list[Drop], userID: Utils.MemberID) -> discord.ui.LayoutView:
-    return Layout(*ClaimedContent(drops, userID))
+def CardBundles(drop: Drop, extras: bool) -> list[Lists.DropBundle]:
+    return drop.bundles if extras else [drop.bundle]
 
-def RollEmbed(drops: list[Drop], userID: Utils.MemberID, rolls: int) -> discord.Embed:
-    color, header, sections = ClaimedContent(drops, userID)
-    embed = MainBot.CreateDefaultEmbed(title="", description="\n\n".join([header, *(text for _, text in sections)]), createdAt=discord.utils.utcnow(), color=color)
-    embed.set_footer(text=Say(Text.ROLL_FOOTER, BOT_FOOTER=Variables.footerText, rolls=rolls, s=Utils.PluralS(rolls)), icon_url=Variables.avatarLink)
-    return embed
+def RollCards(drops: list[Drop], extras: bool = True) -> tuple[list[tuple[list, bytes]], dict[int, bytes]]:
+    cards, lootCards = [], {}
+    for drop in drops:
+        cards += [RollCard.Render(bundle.pieces, bundle.info) for bundle in CardBundles(drop, extras)]
+        if extras and drop.bonusLoot:
+            lootCards[id(drop)] = RollCard.RenderLoot(drop.bonusLoot)
+    return cards, lootCards
 
-def ExpiredLayout(drop: Drop) -> discord.ui.LayoutView:
-    return Layout(discord.Color.greyple(), Say(Text.EXPIRED_HEADER, name=drop.bundle.name), [(None, Say(Text.EXPIRED_BODY))])
+async def RenderCards(drops: list[Drop], extras: bool = True) -> tuple[list[tuple[list, bytes]], dict[int, bytes]]:
+    RollCard.LoadEmojis([bundle for drop in drops for bundle in CardBundles(drop, extras)])
+    return await asyncio.to_thread(RollCards, drops, extras)
+
+def ImageGallery(png: bytes, filename: str, alt: str, files: list[discord.File]) -> discord.ui.MediaGallery:
+    files.append(discord.File(io.BytesIO(png), filename=filename))
+    return discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{filename}", description=alt[:1000]))
+
+def RollCardLayout(
+    drops: list[Drop],
+    footer: str,
+    cards: list[tuple[list, bytes]],
+    lootCards: dict[int, bytes],
+    extras: bool = True,
+    claimable: bool = False,
+    expired: bool = False,
+    byline: str = "",
+) -> tuple[discord.ui.LayoutView, list[discord.File]]:
+    targets = [(drop, bundle) for drop in drops for bundle in CardBundles(drop, extras)]
+    files: list[discord.File] = []
+    blocks = []
+    for number, ((drop, bundle), (slots, png)) in enumerate(zip(targets, cards)):
+        head = RollBundleHead(drops, drop, bundle, expired)
+        if byline:
+            head += f"\n{byline}"
+        alt = "; ".join(f"{Items.PieceName(piece)} #{piece.hex} rarity {Items.FormatRarity(piece.rarity)}" for _, piece, _ in slots if piece)
+        color = discord.Color.greyple() if expired else BundleColor([bundle])
+        blocks.append(([discord.ui.TextDisplay(head), ImageGallery(png, f"armor{number}.png", alt, files)], color))
+
+        lootCard = lootCards.get(id(drop))
+        if lootCard and bundle is drop.bundles[-1]:
+            alt = "; ".join(f"{item} x{count} {Utils.FormatNumber(coins)}" for item, count, coins, _ in drop.bonusLoot)
+            blocks.append(([discord.ui.TextDisplay(LootHeader(drop)), ImageGallery(lootCard, f"loot{number}.png", alt, files)], discord.Color.gold()))
+
+    blocks[-1][0].append(discord.ui.TextDisplay(footer))
+    view = discord.ui.LayoutView()
+    for items, color in blocks:
+        view.add_item(discord.ui.Container(*items, accent_colour=color))
+    if claimable:
+        view.add_item(ClaimRow())
+    return view, files
+
+async def Compose(
+    drops: list[Drop],
+    userID: Utils.MemberID | None = None,
+    rolls: int | None = None,
+    extras: bool = True,
+    claimable: bool = False,
+    expired: bool = False,
+) -> tuple[discord.ui.LayoutView, list[discord.File]]:
+    cards, lootCards = await RenderCards(drops, extras)
+    byline = Byline(drops[0], userID) if userID else ""
+    return RollCardLayout(drops, Footer(rolls), cards, lootCards, extras, claimable, expired, byline)
 
 def ClaimBuild(drops: list[Drop], userID: Utils.MemberID):
     guildID = drops[0].guildID
@@ -339,7 +375,8 @@ async def PostRoll(
     return None
 
 async def PostDrop(channel: Utils.SendableChannel, drop: Drop) -> discord.Message:
-    message = await channel.send(view=DropLayout(drop))
+    view, files = await Compose([drop], extras=False, claimable=True)
+    message = await channel.send(view=view, files=files)
     drop.message = message
     drop.expiresAt = time.monotonic() + Utils.GetSettingValueFromGuild(drop.guildID, Utils.Setting.CLAIM_EXPIRY_SECONDS)
     drops[message.id] = drop
@@ -374,13 +411,15 @@ def Expire(drop: Drop) -> None:
 
 async def EditExpired(drop: Drop) -> None:
     try:
-        await drop.message.edit(view=ExpiredLayout(drop))
+        view, files = await Compose([drop], extras=False, expired=True)
+        await drop.message.edit(view=view, attachments=files)
     except discord.HTTPException:
         pass
 
 async def EditClaimed(drop: Drop, userID: Utils.MemberID) -> None:
     try:
-        await drop.message.edit(view=ClaimedLayout([drop], userID), allowed_mentions=noMentions)
+        view, files = await Compose([drop], userID)
+        await drop.message.edit(view=view, attachments=files, allowed_mentions=noMentions)
     except discord.HTTPException:
         pass
 
