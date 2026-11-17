@@ -393,6 +393,7 @@ async def LogError(
             f"Traceback: {errorTraceback}"
         )
 
+        print(logMessage)
         WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
         await asyncio.gather(
             SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
@@ -405,10 +406,11 @@ def SyncLogHeadlessError(message: str):
     if mainLoop is not None and mainLoop.is_running():
         asyncio.run_coroutine_threadsafe(LogHeadlessError(message), mainLoop)
         return
+    print(f"Error: {message}")
     try:
         WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, f"[{GetTimestampInfo()['timestampString']}]Error: {message}")
     except Exception:
-        print(f"Error: {message}")
+        pass
 
 async def LogHeadlessError(message: str):
     try:
@@ -446,6 +448,7 @@ async def LogHeadlessError(message: str):
             f"Traceback: {errorTraceback}"
         )
 
+        print(logMessage)
         WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
         await asyncio.gather(
             SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)

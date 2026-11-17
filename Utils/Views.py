@@ -12,7 +12,7 @@ def ButtonCallback(func):
         try:
             if interaction is None or await MainBot.IsUserBlacklisted(interaction, logUsage=False):
                 return None
-            await interaction.response.defer(thinking=True)
+            await interaction.response.defer()
             return await func(*args, **kwargs)
         except Utils.CommandAbort:
             return None

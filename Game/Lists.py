@@ -297,7 +297,7 @@ async def BundleFromRow(row) -> DropBundle:
         BundlePiece(pieceRow[0], pieceRow[1], Utils.ArmorSlot(pieceRow[2]), pieceRow[3], pieceRow[4], json.loads(pieceRow[5]))
         for pieceRow in pieceRows
     ]
-    return DropBundle(row[1], row[2], row[3], pieces, void=False, info=json.loads(row[5]))
+    return DropBundle(row[1], row[2].replace("_", " "), row[3], pieces, void=False, info=json.loads(row[5]))
 
 async def Initialize() -> None:
     global index
