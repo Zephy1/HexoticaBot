@@ -66,26 +66,6 @@ class ClaimRow(discord.ui.ActionRow):
 def ClaimView() -> discord.ui.LayoutView:
     return discord.ui.LayoutView(timeout=None).add_item(ClaimRow())
 
-def SetImageURL(bundle: Lists.DropBundle) -> str | None:
-    return None
-
-def Layout(
-    color: discord.Color,
-    header: str,
-    sections: list[tuple[str | None, str]],
-    claimable: bool = False,
-) -> discord.ui.LayoutView:
-    container = discord.ui.Container(discord.ui.TextDisplay(header), accent_colour=color)
-    for imageURL, text in sections:
-        container.add_item(discord.ui.Separator())
-        if imageURL:
-            container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(imageURL)))
-        container.add_item(discord.ui.TextDisplay(text))
-    if claimable:
-        container.add_item(ClaimRow())
-    container.add_item(discord.ui.TextDisplay(Say(Text.FOOTER_LINE, BOT_FOOTER=Variables.footerText)))
-    return discord.ui.LayoutView().add_item(container)
-
 def IsSpecial(guildID: Utils.GuildID, bundle: Lists.DropBundle) -> bool:
     return not bundle.void and bundle.rarity >= Utils.GetSettingValueFromGuild(guildID, Utils.Setting.SPECIAL_ALERT_THRESHOLD)
 
@@ -93,8 +73,9 @@ def SellValue(
     guildID: Utils.GuildID,
     rarity: float,
     multiplier: float = 1.0,
+    setting: Utils.Setting = Utils.Setting.SELL_COIN_RATE,
 ) -> Utils.Coins:
-    rate = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.SELL_COIN_RATE)
+    rate = Utils.GetSettingValueFromGuild(guildID, setting)
     return int(max(rarity, 0) * rate * multiplier + 0.5)
 
 async def BuildDrop(
@@ -203,7 +184,9 @@ def ClaimBuild(drops: list[Drop], userID: Utils.MemberID):
         sources = [(piece, target) for target in targets for piece in target.pieces]
 
         for drop in drops:
-            drop.bonusCoins = SellValue(guildID, drop.bundle.rarity) if random.random() < Upgrades.BonusCoinsChance(profile, guildID) else 0
+            hasBonus = random.random() < Upgrades.BonusCoinsChance(profile, guildID)
+            drop.bonusCoins = SellValue(guildID, drop.bundle.rarity, setting=Utils.Setting.BONUS_COIN_RATE) if hasBonus else 0
+            drop.bonusLoot = Items.RollLoot(drop.bonusCoins)
             profile["coins"] += drop.bonusCoins
 
         userItems, appUpdates, itemIDs = Items.AddItems(guildID, userID, sources)
@@ -248,22 +231,33 @@ def AnnounceClaim(drop: Drop, userID: Utils.MemberID) -> None:
     if any(IsSpecial(drop.guildID, bundle) for bundle in drop.bundles):
         MainBot.FireAndForget(SendSpecialAlert(drop, userID))
 
+async def SendSpecialAlert(drop: Drop, userID: Utils.MemberID) -> None:
+    special = [bundle for bundle in drop.bundles if IsSpecial(drop.guildID, bundle)]
+    channelID = Utils.GuildConfig(drop.guildID).get("specialChannelID") or drop.channelID
+    if not special or not channelID:
+        return
+    channel = MainBot.GetClient().get_channel(channelID)
+    if channel is None:
+        return
+    try:
+        alert = replace(drop, bundle=special[0], extras=special[1:], bonusCoins=0, bonusLoot=[])
+        view, files = await Compose([alert], userID)
+        await channel.send(view=view, files=files, allowed_mentions=noMentions)
+    except discord.HTTPException:
+        pass
+
 async def HandleClaim(interaction: discord.Interaction):
+    async def reply(text: str):
+        await Logger.SendInteractionMessage(interaction=interaction, message=text, ephemeral=True)
+
     drop = drops.get(interaction.message.id)
     user = interaction.user
     if drop is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.CLAIM_GONE), ephemeral=True)
-        return
+        return await reply(Say(Text.CLAIM_GONE))
     if shuttingDown:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.CLAIM_SHUTDOWN), ephemeral=True)
-        return
+        return await reply(Say(Text.CLAIM_SHUTDOWN))
     if drop.state is not DropState.OPEN:
-        await Logger.SendInteractionMessage(
-            interaction=interaction,
-            message=Say(Text.CLAIM_ALREADY_CLAIMED if drop.state is DropState.CLAIMED else Text.CLAIM_IN_PROGRESS),
-            ephemeral=True,
-        )
-        return
+        return await reply(Say(Text.CLAIM_ALREADY_CLAIMED if drop.state is DropState.CLAIMED else Text.CLAIM_IN_PROGRESS))
     drop.state = DropState.CLAIMING
     try:
         await Profiles.EnsureProfile(drop.guildID, user.id)
@@ -278,7 +272,7 @@ async def HandleClaim(interaction: discord.Interaction):
         else:
             drop.state = DropState.OPEN
             ArmExpiry(drop)
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.CLAIM_FAILED, reason=reason), ephemeral=True)
+        return await reply(Say(Text.CLAIM_FAILED, reason=reason))
         return
 
     drop.state = DropState.CLAIMED
@@ -335,7 +329,8 @@ async def PostRoll(
     lastError = None
     for attempt in range(sendRetries + 1):
         try:
-            return await interaction.edit_original_response(embed=RollEmbed(claims, userID, rolls), allowed_mentions=noMentions)
+            view, files = await Compose(claims, userID, rolls)
+            return await interaction.edit_original_response(view=view, attachments=files, allowed_mentions=noMentions)
         except discord.HTTPException as e:
             lastError = e
         if attempt < sendRetries:
@@ -400,29 +395,17 @@ def ArmExpiry(drop: Drop) -> None:
         await EditExpired(drop)
     MainBot.FireAndForget(expire())
 
-async def SendSpecialAlert(drop: Drop, userID: Utils.MemberID) -> None:
-    try:
-        config = Utils.GuildConfig(drop.guildID)
-        channelID = config.get("specialChannelID") or drop.channelID
-        if not channelID:
-            return
-        channel = MainBot.GetClient().get_channel(channelID)
-        if channel is None:
-            return
-        description = Say(Text.SPECIAL_ALERT, userID=userID, name=drop.bundle.name, rarity=Items.FormatRarity(drop.bundle.rarity))
-        if drop.message:
-            description += Say(Text.SPECIAL_ALERT_LINK, guildID=drop.guildID, channelID=drop.channelID, messageID=drop.message.id)
-        for extra in drop.extras:
-            if IsSpecial(drop.guildID, extra):
-                description += Say(Text.SPECIAL_ALERT_EXTRA, name=extra.name, rarity=Items.FormatRarity(extra.rarity))
-        await channel.send(embed=MainBot.CreateDefaultEmbed(title=Say(Text.SPECIAL_ALERT_TITLE), description=description[:4000], color=discord.Color.gold()))
-    except discord.HTTPException:
-        pass
-
 def DropDelay(guildID: Utils.GuildID) -> float:
     low = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.DROP_INTERVAL_MIN_SECONDS)
     high = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.DROP_INTERVAL_MAX_SECONDS)
     return random.uniform(min(low, high), max(low, high)) / TemporaryBuffs.BeaconMultiplier(guildID, "frequency")
+
+def NextDropTime(guildID: Utils.GuildID, now: float, planned: float | None, lastMultiplier: float | None, multiplier: float) -> float:
+    if planned is None:
+        return now + DropDelay(guildID)
+    if planned > now and lastMultiplier is not None and lastMultiplier != multiplier:
+        return now + (planned - now) * lastMultiplier / multiplier
+    return planned
 
 async def SpawnLoop():
     client = MainBot.GetClient()
@@ -445,20 +428,13 @@ async def SpawnCycle(
     wake = now + 15
     plans = []
     for guild in list(client.guilds):
-        config = Utils.GuildConfig(guild.id)
-        channelID = config.get("dropChannelID")
+        channelID = Utils.GuildConfig(guild.id).get("dropChannelID")
         if channelID is None:
             nextDrops.pop(guild.id, None)
             lastBeaconMult.pop(guild.id, None)
             continue
         multiplier = TemporaryBuffs.BeaconMultiplier(guild.id, "frequency")
-        nextTick = nextDrops.get(guild.id)
-        if nextTick is None:
-            nextTick = now + DropDelay(guild.id)
-        elif nextTick > now and guild.id in lastBeaconMult:
-            last = lastBeaconMult[guild.id]
-            if last != multiplier:
-                nextTick = now + (nextTick - now) * last / multiplier
+        nextTick = NextDropTime(guild.id, now, nextDrops.get(guild.id), lastBeaconMult.get(guild.id), multiplier)
         nextDrops[guild.id] = nextTick
         lastBeaconMult[guild.id] = multiplier
         plans.append((guild, channelID, nextTick))
@@ -470,26 +446,24 @@ async def SpawnCycle(
     due = [(guild, channelID) for guild, channelID, tick in plans if now >= tick]
     for guild, _ in due:
         nextDrops[guild.id] = now + DropDelay(guild.id)
-    results = await asyncio.gather(
-        *(SendTimedDrop(guild, channelID) for guild, channelID in due),
-        return_exceptions=True,
-    )
+    results = await asyncio.gather(*(SendTimedDrop(guild, channelID) for guild, channelID in due), return_exceptions=True)
     for result in results:
         if isinstance(result, Exception):
             await Logger.LogHeadlessError(f"Unexpected error sending timed drop: {result!r}")
 
+def CanPost(channel, me) -> bool:
+    permissions = channel.permissions_for(me)
+    return permissions.send_messages and permissions.embed_links and permissions.attach_files
+
 async def SendTimedDrop(guild, channelID: Utils.ChannelID) -> None:
     if shuttingDown:
         return
-    drop = await BuildDrop(guild.id, Utils.GetSettingValueFromGuild(guild.id, Utils.Setting.TIMED_DROP_LUCK) * TemporaryBuffs.BeaconMultiplier(guild.id, "luck"), channelID=channelID, dropType=DropType.TIMED)
+    luck = Utils.GetSettingValueFromGuild(guild.id, Utils.Setting.TIMED_DROP_LUCK) * TemporaryBuffs.BeaconMultiplier(guild.id, "luck")
+    drop = await BuildDrop(guild.id, luck, channelID=channelID, dropType=DropType.TIMED)
     if drop is None:
         return
     channel = MainBot.GetClient().get_channel(channelID)
-    if channel is None:
-        ReleaseReservations(drop)
-        return
-    permissions = channel.permissions_for(guild.me)
-    if not (permissions.send_messages and permissions.embed_links):
+    if channel is None or not CanPost(channel, guild.me):
         ReleaseReservations(drop)
         return
 

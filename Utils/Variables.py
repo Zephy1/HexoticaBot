@@ -13,8 +13,6 @@ isTestingBot = True
 # Bot
 footerText = Say(Text.BOT_FOOTER)
 defaultBotName = Say(Text.BOT_NAME)
-defaultBotDescription = Say(Text.BOT_DESCRIPTION, BOT_FOOTER=footerText)
-defaultBotStatus = {}
 avatarLink = "https://cdn.discordapp.com/avatars/1424353972545654925/a3e814faa95da96a5307e2e8122748c7.webp"
 defaultColorHex = 0x00FF7F
 defaultDiscordColor = discord.Color(defaultColorHex)
@@ -82,23 +80,29 @@ class Setting(StrEnum):
     def definition(self) -> GameSetting:
         return SETTINGS[self]
 
-SETTINGS: dict[str, GameSetting] = {
-    Setting.SPECIAL_ALERT_THRESHOLD:   GameSetting(Say(Text.SETTING_SPECIAL_ALERT_THRESHOLD_LABEL), Say(Text.SETTING_SPECIAL_ALERT_THRESHOLD_DESCRIPTION), 20, 1, 50, isInt=True),
-    Setting.RARE_ITEM_SKEW:            GameSetting(Say(Text.SETTING_RARE_ITEM_SKEW_LABEL), Say(Text.SETTING_RARE_ITEM_SKEW_DESCRIPTION), 1, 0, 10),
-    Setting.TIMED_DROP_LUCK:           GameSetting(Say(Text.SETTING_TIMED_DROP_LUCK_LABEL), Say(Text.SETTING_TIMED_DROP_LUCK_DESCRIPTION), 3.0, 0.0, 10.0),
-    Setting.ROLL_BASE_LUCK:            GameSetting(Say(Text.SETTING_ROLL_BASE_LUCK_LABEL), Say(Text.SETTING_ROLL_BASE_LUCK_DESCRIPTION), 1.0, 0.0, 10.0),
-    Setting.BONUS_LUCK:                GameSetting(Say(Text.SETTING_BONUS_LUCK_LABEL), Say(Text.SETTING_BONUS_LUCK_DESCRIPTION), 1.5, 0.0, 10.0),
-    Setting.BONUS_BUNDLE_CHANCE:       GameSetting(Say(Text.SETTING_BONUS_BUNDLE_CHANCE_LABEL), Say(Text.SETTING_BONUS_BUNDLE_CHANCE_DESCRIPTION), 0.05, 0.0, 1.0),
-    Setting.VOID_BONUS_CHANCE:         GameSetting(Say(Text.SETTING_VOID_BONUS_CHANCE_LABEL), Say(Text.SETTING_VOID_BONUS_CHANCE_DESCRIPTION), 0.05, 0.0, 1.0),
-    Setting.BASE_ROLLS_PER_HOUR:       GameSetting(Say(Text.SETTING_BASE_ROLLS_PER_HOUR_LABEL), Say(Text.SETTING_BASE_ROLLS_PER_HOUR_DESCRIPTION), 5, 0, 50, isInt=True),
-    Setting.BASE_ROLL_OVERFLOW:        GameSetting(Say(Text.SETTING_BASE_ROLL_OVERFLOW_LABEL), Say(Text.SETTING_BASE_ROLL_OVERFLOW_DESCRIPTION), 1.5, 0.0, 10.0),
-    Setting.BONUS_COINS_CHANCE:        GameSetting(Say(Text.SETTING_BONUS_COINS_CHANCE_LABEL), Say(Text.SETTING_BONUS_COINS_CHANCE_DESCRIPTION), 0.10, 0.0, 1.0),
-    Setting.SELL_COIN_RATE:            GameSetting(Say(Text.SETTING_SELL_COIN_RATE_LABEL), Say(Text.SETTING_SELL_COIN_RATE_DESCRIPTION), 25_000_000, 0, 1_000_000_000, isInt=True),
-    Setting.SHOWCASE_INCOME_RATE:      GameSetting(Say(Text.SETTING_SHOWCASE_INCOME_RATE_LABEL), Say(Text.SETTING_SHOWCASE_INCOME_RATE_DESCRIPTION), 1_000_000, 0, 1_000_000_000, isInt=True),
-    Setting.STARTING_SHOWCASE_SLOTS:           GameSetting(Say(Text.SETTING_STARTING_SHOWCASE_SLOTS_LABEL), Say(Text.SETTING_STARTING_SHOWCASE_SLOTS_DESCRIPTION), 50, 1, 50, isInt=True),
-    Setting.STARTING_EARNING_SHOWCASE_SLOTS:   GameSetting(Say(Text.SETTING_STARTING_EARNING_SHOWCASE_SLOTS_LABEL), Say(Text.SETTING_STARTING_EARNING_SHOWCASE_SLOTS_DESCRIPTION), 2, 0, 10, isInt=True),
-    Setting.DROP_INTERVAL_MIN_SECONDS: GameSetting(Say(Text.SETTING_DROP_INTERVAL_MIN_SECONDS_LABEL), Say(Text.SETTING_DROP_INTERVAL_MIN_SECONDS_DESCRIPTION), 210, 10, 86_400, isInt=True),
-    Setting.DROP_INTERVAL_MAX_SECONDS: GameSetting(Say(Text.SETTING_DROP_INTERVAL_MAX_SECONDS_LABEL), Say(Text.SETTING_DROP_INTERVAL_MAX_SECONDS_DESCRIPTION), 450, 10, 86_400, isInt=True),
-    Setting.CLAIM_EXPIRY_SECONDS:      GameSetting(Say(Text.SETTING_CLAIM_EXPIRY_SECONDS_LABEL), Say(Text.SETTING_CLAIM_EXPIRY_SECONDS_DESCRIPTION), 300, 10, 900, isInt=True),
-    Setting.TRADE_TIMEOUT_SECONDS:     GameSetting(Say(Text.SETTING_TRADE_TIMEOUT_SECONDS_LABEL), Say(Text.SETTING_TRADE_TIMEOUT_SECONDS_DESCRIPTION), 45, 10, 300, isInt=True),
-}
+def Define(setting: Setting, default: float, minimum: float, maximum: float, isInt: bool = False) -> tuple[Setting, GameSetting]:
+    label = Say(Text[f"SETTING_{setting.name}_LABEL"])
+    description = Say(Text[f"SETTING_{setting.name}_DESCRIPTION"])
+    return setting, GameSetting(label, description, default, minimum, maximum, isInt)
+
+SETTINGS: dict[str, GameSetting] = dict([
+    Define(Setting.SPECIAL_ALERT_THRESHOLD, 20, 1, 50, isInt=True),
+    Define(Setting.RARE_ITEM_SKEW, 1, 0, 10),
+    Define(Setting.TIMED_DROP_LUCK, 3.0, 0.0, 10.0),
+    Define(Setting.ROLL_BASE_LUCK, 1.0, 0.0, 10.0),
+    Define(Setting.BONUS_LUCK, 1.5, 0.0, 10.0),
+    Define(Setting.BONUS_BUNDLE_CHANCE, 0.05, 0.0, 1.0),
+    Define(Setting.VOID_BONUS_CHANCE, 0.05, 0.0, 1.0),
+    Define(Setting.BASE_ROLLS_PER_HOUR, 5, 0, 50, isInt=True),
+    Define(Setting.BASE_ROLL_OVERFLOW, 1.5, 0.0, 10.0),
+    Define(Setting.BONUS_COINS_CHANCE, 0.10, 0.0, 1.0),
+    Define(Setting.SELL_COIN_RATE, 20_000_000, 0, 1_000_000_000, isInt=True),
+    Define(Setting.BONUS_COIN_RATE, 5_000_000, 0, 1_000_000_000, isInt=True),
+    Define(Setting.SHOWCASE_INCOME_RATE, 1_000_000, 0, 1_000_000_000, isInt=True),
+    Define(Setting.STARTING_SHOWCASE_SLOTS, 50, 1, 50, isInt=True),
+    Define(Setting.STARTING_EARNING_SHOWCASE_SLOTS, 2, 0, 10, isInt=True),
+    Define(Setting.DROP_INTERVAL_MIN_SECONDS, 210, 10, 86_400, isInt=True),
+    Define(Setting.DROP_INTERVAL_MAX_SECONDS, 450, 10, 86_400, isInt=True),
+    Define(Setting.CLAIM_EXPIRY_SECONDS, 300, 10, 900, isInt=True),
+    Define(Setting.TRADE_TIMEOUT_SECONDS, 45, 10, 300, isInt=True),
+])

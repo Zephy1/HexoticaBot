@@ -3,9 +3,7 @@ from enum import StrEnum
 class Text(StrEnum):
     # Bot
     BOT_FOOTER = "Made by ze.phy"
-    FOOTER_LINE = "-# {BOT_FOOTER}"
     BOT_NAME = "Hexotica"
-    BOT_DESCRIPTION = "\ud83c\udfa8 Hexotica\n\nCommands:\n\n**{BOT_FOOTER}**"
     RATE_LIMITED = "You are using commands too quickly. Try again in a few seconds."
     NOT_ALLOWED = "You are not allowed to use this command."
     BLACKLISTED_USER = "😢"
@@ -29,25 +27,20 @@ class Text(StrEnum):
     GLOBAL_COLOR_LIST_DESCRIPTION = "Enter a list of hex codes separated by spaces (e.g., #334CB2 #191919)"
     GLOBAL_OUTPUT_SHAPE_DESCRIPTION = "Enter the armor shape. (e.g., Vertical, Horizontal, Square)"
     GLOBAL_OUTPUT_VERSION_DESCRIPTION = "Enter the armor version. (e.g., 1.8.9, 1.14+)"
-    GLOBAL_USER = "The user to effect."
+    GLOBAL_USER = "The user to affect."
 
     # Drops
     CLAIM_BUTTON = "Claim"
     SPECIAL_STAR = "⭐"
-    PIECE_LINE = "- {name} `#{hex}` - rarity {rarity}"
-    PIECE_CRAFT = "\n  {craft}"
     BUNDLE_BONUS_VOID = "Bonus: {name}"
     BUNDLE_BONUS_SET = "Bonus: {name}"
-    BUNDLE_HEADER = "**{title}** - rarity {rarity}"
-    DROP_HEADER = "## {star}{name}"
-    DROP_DESCRIPTION = "**Rarity {rarity}**\n{setText}\n\n{lines}"
     ROLL_LINE = "Roll: {line}"
     DOUBLE_ROLL_LINE = "Double roll: {line}"
     DOUBLE_ROLL = "Double roll"
-    CLAIMED_BONUS_COINS = "{text}\n\n**Bonus coins: +{coins}**"
-    CLAIMED_HEADER = "## {star}{name} - Claimed\nClaimed by <@{userID}>!"
-    EXPIRED_HEADER = "## {name} - Expired"
-    EXPIRED_BODY = "Not claimed in time."
+    TITLE_EXPIRED = "Expired: {title}"
+    CLAIMED_BY = "-# Claimed by <@{userID}>"
+    ROLLED_BY = "-# Rolled by <@{userID}>"
+    BONUS_LOOT_HEADER = "## Bonus: {coins} coins"
     CLAIM_GONE = "This snipe is no longer available."
     CLAIM_SHUTDOWN = "This snipe can no longer be claimed."
     CLAIM_ALREADY_CLAIMED = "This snipe has already been claimed."
@@ -56,17 +49,8 @@ class Text(StrEnum):
     ROLL_NO_ROLLS = "You're out of available rolls."
     ROLL_NOTHING_TO_DROP = "Unexpected error: There are no available drops."
     ROLL_NOT_POSTED = "Failed to post roll result."
-    SPECIAL_ALERT_TITLE = "⭐ Special Snipe Claimed"
-    SPECIAL_ALERT = "<@{userID}> claimed a special snipe: **{name}** (rarity {rarity})!"
-    SPECIAL_ALERT_LINK = "\nhttps://discord.com/channels/{guildID}/{channelID}/{messageID}"
-    SPECIAL_ALERT_EXTRA = "\n\nThe bonus set was also special: **{name}** (rarity {rarity})."
 
     # Items
-    RARITY_MATH = "{base:g} × (1{mods})"
-    RARITY_MOD = " {sign} {value:g} [{label}]"
-    CRAFT_FROM = " from {source}"
-    CRAFT_TEXT = "{method}{source} - `{recipe}`\n{calc}"
-    SET_TEXT = "{mode} - {calc}"
     ITEM_NOT_OWNED = "<@{ownerID}> does not own item {itemID}."
     AUTOCOMPLETE_ITEM = "{itemID} ({rarity})"
 
@@ -97,7 +81,7 @@ class Text(StrEnum):
     UPGRADE_LEVEL_INVALID = "The level must be an integer >= 0."
     UPGRADE_CAPS = "The {label} upgrade caps at level {maxLevel}."
     UPGRADE_NO_LEVELS = "You have no {label} levels to refund."
-    UPGRADE_MAXED = "The {label} upgrade is already maxxed."
+    UPGRADE_MAXED = "The {label} upgrade is already maxed."
     UPGRADE_COST = "The {label} upgrade costs {cost} coins, you have {coins}."
 
     # Showcase

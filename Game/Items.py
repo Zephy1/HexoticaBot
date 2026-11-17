@@ -134,11 +134,11 @@ async def GiveItem(
     piece: Lists.BundlePiece,
     bundle: Lists.DropBundle,
 ) -> Utils.ItemID:
+    scope = Profiles.Scope(guildID, userID)
     def build():
         userItems, appUpdates, itemIDs = AddItems(guildID, userID, [(piece, bundle)])
-        return {Profiles.Scope(guildID, userID): userItems}, appUpdates, itemIDs[0]
-
-    return await Atomic.AtomicUpdate(guildID, [Profiles.Scope(guildID, userID)], build)
+        return {scope: userItems}, appUpdates, itemIDs[0]
+    return await Atomic.AtomicUpdate(guildID, [scope], build)
 
 def CachedItemRow(scope: Utils.UserScope, itemID: Utils.ItemID) -> dict | None:
     row = PersistentUserData.persistentUserData.get(scope, {}).get(f"item.{itemID}")
@@ -199,6 +199,9 @@ async def RemoveItem(
         Lists.AddVoidRecord(guildID, record)
     return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False, onSuccess=onSuccess)
 
+def CleanSearch(current: str) -> str:
+    return current.lower().replace("#", "")
+
 async def AutocompleteUserItems(
     interaction: discord.Interaction,
     current: str,
@@ -216,10 +219,9 @@ async def _AutocompleteUserItems(
     if guildID is None:
         return []
     scope = Profiles.Scope(guildID, ownerID or interaction.user.id)
-    current = current.lower().replace("#", "")
-    rows = await PersistentData.SearchPrefix("userData", f"{scope}:item.", current, 25, byRarity=True)
+    rows = await PersistentData.SearchPrefix("userData", f"{scope}:item.", CleanSearch(current), 25, byRarity=True)
     return [
-        app_commands.Choice(name=Say(Text.AUTOCOMPLETE_ITEM, itemID=itemID, rarity=FormatRarity(json.loads(row)['rarity']))[:100], value=itemID)
+        app_commands.Choice(name=Say(Text.AUTOCOMPLETE_ITEM, itemID=itemID, rarity=FormatRarity(json.loads(row)["rarity"]))[:100], value=itemID)
         for itemID, row in rows
     ]
 
@@ -227,8 +229,7 @@ async def AutocompleteGuildItems(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice]:
-    current = current.lower().replace("#", "")
-    rows = await PersistentData.SearchPrefix("itemOwner", f"{interaction.guild_id}.", current, 25)
+    rows = await PersistentData.SearchPrefix("itemOwner", f"{interaction.guild_id}.", CleanSearch(current), 25)
     return [app_commands.Choice(name=itemID[:100], value=itemID) for itemID, _ in rows]
 
 async def AutocompleteArmorTypes(
@@ -291,10 +292,7 @@ async def PieceSupply(
     reservedVoid = Lists.reservedVoid.get(guildID, ())
     for _, voidID, record in Lists.voidPools.get(guildID, []):
         if record["armor"] == armorType and record["slot"] == slot and record["hex"] == hexCode:
-            if voidID in reservedVoid:
-                supply["reserved"] += 1
-            else:
-                supply["voided"] += 1
+            supply["reserved" if voidID in reservedVoid else "voided"] += 1
     ownedRows = await PersistentData.ReadPrefix("itemOwner", f"{guildID}.{itemType}_{hexCode}_")
     supply["owned"] = len(ownedRows)
     issued = PersistentAppData.GetData(CounterKey(guildID, itemType, hexCode), 1) - 1
