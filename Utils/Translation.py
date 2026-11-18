@@ -28,6 +28,8 @@ class Text(StrEnum):
     GLOBAL_OUTPUT_SHAPE_DESCRIPTION = "Enter the armor shape. (e.g., Vertical, Horizontal, Square)"
     GLOBAL_OUTPUT_VERSION_DESCRIPTION = "Enter the armor version. (e.g., 1.8.9, 1.14+)"
     GLOBAL_USER = "The user to affect."
+    GLOBAL_ITEM_ID = "The item's ID."
+    GLOBAL_ITEM_ID_INVALID = "`{itemID}` is not a valid item ID."
 
     # Drops
     CLAIM_BUTTON = "Claim"
@@ -51,7 +53,6 @@ class Text(StrEnum):
     ROLL_NOT_POSTED = "Failed to post roll result."
 
     # Items
-    ITEM_NOT_OWNED = "<@{ownerID}> does not own item {itemID}."
     AUTOCOMPLETE_ITEM = "{itemID} ({rarity})"
 
     # Trading
@@ -117,8 +118,6 @@ class Text(StrEnum):
     # /admin
     ADMIN_GROUP_DESCRIPTION = "Admin only commands."
     ADMIN_DELETE_ITEM_DESCRIPTION = "Delete an item owned by a specific user. (Bot owner)"
-    ADMIN_DELETE_ITEM_ID = "The item to delete."
-    ADMIN_DELETE_ITEM_INVALID = "`{itemID}` is not a valid item ID."
     ADMIN_DELETE_ITEM_NOT_OWNED = "<@{userID}> doesn't own `{itemID}`."
     ADMIN_DELETE_ITEM_DONE = "Successfully deleted `{itemID}` from <@{userID}>."
     ADMIN_GIVE_COINS_DESCRIPTION = "Give coins to a specific user. (Bot owner)"

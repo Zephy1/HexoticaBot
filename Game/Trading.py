@@ -37,9 +37,6 @@ class TradeData:
     message: discord.Message | None = field(default=None, init=False)
     state: TradeState = field(default=TradeState.PENDING, init=False)
 
-    def HasItem(self, itemID: Utils.ItemID) -> bool:
-        return itemID in self.senderItems or itemID in self.recipientItems
-
     def BusyKeys(self) -> tuple:
         return (self.guildID, self.sender), (self.guildID, self.recipient)
 
@@ -49,14 +46,19 @@ def IsMemberBusy(
 ) -> bool:
     return (guildID, userID) in busyUsers
 
+def PendingItems(guildID: Utils.GuildID) -> set[Utils.ItemID]:
+    return {
+        itemID
+        for trade in tradesByMessage.values()
+        if trade.guildID == guildID
+        for itemID in (*trade.senderItems, *trade.recipientItems)
+    }
+
 def IsItemPending(
     guildID: Utils.GuildID,
     itemID: Utils.ItemID,
 ) -> bool:
-    return any(
-        trade.guildID == guildID and trade.HasItem(itemID)
-        for trade in tradesByMessage.values()
-    )
+    return itemID in PendingItems(guildID)
 
 def Register(trade: TradeData) -> None:
     tradesByMessage[trade.message.id] = trade

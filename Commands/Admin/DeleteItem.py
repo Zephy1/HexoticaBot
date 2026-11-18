@@ -15,7 +15,7 @@ from Game import Items
     description=Say(Text.ADMIN_DELETE_ITEM_DESCRIPTION),
     variableDescriptions={
         "user": Say(Text.GLOBAL_USER),
-        "itemID": Say(Text.ADMIN_DELETE_ITEM_ID),
+        "itemID": Say(Text.GLOBAL_ITEM_ID),
     },
     autoComplete={
         "itemID": Items.AutocompleteUserItems,
@@ -29,11 +29,10 @@ async def Command_AdminDeleteItem(
 ):
     await interaction.response.defer(thinking=True, ephemeral=True)
     guildID, memberID = await Utils.RequireGuildAndMember(interaction.guild_id, user.id, interaction)
-    await Profiles.EnsureProfile(guildID, user.id)
 
     parsed = Items.ParseItemID(itemID)
     if parsed is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_DELETE_ITEM_INVALID, itemID=itemID), ephemeral=True)
+        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.GLOBAL_ITEM_ID_INVALID, itemID=itemID), ephemeral=True)
         return
 
     normalizedID = parsed.itemID

@@ -9,6 +9,7 @@ from Commands.Admin import adminGroup
 from Utils import Variables
 from Utils import Logger
 from Utils import Utils
+from Utils import Views
 
 settingsActionChoices = [
     app_commands.Choice(name=Say(Text.ADMIN_SETTINGS_ACTION_LIST), value="list"),
@@ -91,6 +92,7 @@ class SettingModal(discord.ui.Modal):
             component=self.field,
         ))
 
+    @Views.ButtonCallback
     async def on_submit(self, interaction: discord.Interaction):
         raw = self.field.value.replace(",", "").replace("_", "").strip()
         try:
@@ -108,9 +110,9 @@ class SettingModal(discord.ui.Modal):
         current = Utils.FormatSetting(self.name, Utils.GetSettingValueFromGuild(self.panel.guildID, self.name))
         await self.panel.Show(interaction, Say(Text.ADMIN_SETTINGS_RESET if value is None else Text.ADMIN_SETTINGS_SET, setting=self.definition.label, value=current))
 
-class SettingsPanel(discord.ui.LayoutView):
+class SettingsPanel(Views.Panel):
     def __init__(self, guildID: Utils.GuildID):
-        super().__init__(timeout=900)
+        super().__init__()
         self.guildID = guildID
         self.status = ""
         self.confirming = False
@@ -124,13 +126,12 @@ class SettingsPanel(discord.ui.LayoutView):
             default = Utils.FormatSetting(name, definition.default)
             lines.append(Say(Text.ADMIN_SETTINGS_PANEL_LINE, label=definition.label, current=current, note=Say(Text.ADMIN_SETTINGS_PANEL_DEFAULT, default=default) if current != default else ""))
             options.append(discord.SelectOption(label=definition.label, value=str(name), description=definition.description[:100]))
-        self.select = discord.ui.Select(placeholder=Say(Text.ADMIN_SETTINGS_PANEL_PLACEHOLDER), options=options)
-        self.select.callback = self.Pick
-        reset = discord.ui.Button(
-            label=Say(Text.ADMIN_SETTINGS_RESET_ALL_CONFIRM if self.confirming else Text.ADMIN_SETTINGS_RESET_ALL_BUTTON),
-            style=discord.ButtonStyle.danger if self.confirming else discord.ButtonStyle.secondary,
+        self.select = Views.Dropdown(Say(Text.ADMIN_SETTINGS_PANEL_PLACEHOLDER), options, self.Pick)
+        reset = Views.Button(
+            Say(Text.ADMIN_SETTINGS_RESET_ALL_CONFIRM if self.confirming else Text.ADMIN_SETTINGS_RESET_ALL_BUTTON),
+            self.ResetAll,
+            discord.ButtonStyle.danger if self.confirming else discord.ButtonStyle.secondary,
         )
-        reset.callback = self.ResetAll
         items = [discord.ui.TextDisplay("\n".join([Say(Text.ADMIN_SETTINGS_PANEL_TITLE), *lines]))]
         if self.status:
             items.append(discord.ui.TextDisplay(self.status))
@@ -151,17 +152,13 @@ class SettingsPanel(discord.ui.LayoutView):
             await interaction.response.edit_message(view=self)
 
     async def Pick(self, interaction: discord.Interaction):
-        if await MainBot.IsUserBlacklisted(interaction, logUsage=False):
-            return
-        await interaction.response.send_modal(SettingModal(self, self.select.values[0]))
+        await Views.OpenModal(interaction, SettingModal(self, self.select.values[0]))
 
+    @Views.ButtonCallback
     async def ResetAll(self, interaction: discord.Interaction):
-        if await MainBot.IsUserBlacklisted(interaction, logUsage=False):
-            return
         if not self.confirming:
             await self.Show(interaction, self.status, confirming=True)
             return
-        await interaction.response.defer()
         for name in list(Utils.GuildConfig(self.guildID).get("settings", {})):
             if name in Variables.SETTINGS:
                 await Utils.SetSetting(self.guildID, name, None)

@@ -221,6 +221,8 @@ async def EnsureProfile(guildID: Utils.GuildID, userID: Utils.MemberID) -> dict:
 
     def refill(current: dict | None) -> dict:
         profile = current if current is not None else DefaultProfile(guildID)
+        if not isinstance(profile.get("showcase"), dict):
+            profile["showcase"], profile["earning"] = {}, []
         ApplyRefill(profile, guildID, scope)
         return profile
 

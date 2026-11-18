@@ -8,10 +8,11 @@ from Commands.Admin import adminGroup
 from Utils import Variables
 from Utils import Logger
 from Utils import Utils
+from Utils import Views
 
-class SetupView(discord.ui.LayoutView):
+class SetupView(Views.Panel):
     def __init__(self, guildID: Utils.GuildID):
-        super().__init__(timeout=900)
+        super().__init__()
         self.guildID = guildID
         config = Utils.GuildConfig(guildID)
         self.chosen: dict[str, int | None] = {}
@@ -29,9 +30,9 @@ class SetupView(discord.ui.LayoutView):
                 default_values=[discord.Object(id=config[key])] if config.get(key) else [],
             )
 
+            @Views.ButtonCallback
             async def chosen(interaction: discord.Interaction):
                 self.chosen[key] = select.values[0].id if select.values else None
-                await interaction.response.defer(thinking=True, ephemeral=True)
 
             select.callback = chosen
             return select
@@ -42,11 +43,7 @@ class SetupView(discord.ui.LayoutView):
         ):
             container.add_item(discord.ui.ActionRow(channelSelect(key, placeholder, required)))
 
-        save = discord.ui.Button(label=Say(Text.ADMIN_SETUP_SAVE), style=discord.ButtonStyle.success)
-        save.callback = self.save
-        row = discord.ui.ActionRow()
-        row.add_item(save)
-        container.add_item(row)
+        container.add_item(discord.ui.ActionRow(Views.Button(Say(Text.ADMIN_SETUP_SAVE), self.save, discord.ButtonStyle.success)))
         self.add_item(container)
 
     async def save(self, interaction: discord.Interaction):

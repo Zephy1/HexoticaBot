@@ -373,17 +373,8 @@ async def GetItemOwner(
 ) -> Utils.MemberID | None:
     return await ReadOne("itemOwner", f"{guildID}.{itemID}")
 
-async def RemoveItem(
-    guildID: Utils.GuildID,
-    ownerID: Utils.MemberID,
-    itemID: Utils.ItemID,
-    sellValue: int = 0,
-) -> dict | None:
-    scope = Profiles.Scope(guildID, ownerID)
-    item = await GetItemRow(scope, itemID)
-    if item is None:
-        return None
-    record = {
+def VoidRecord(itemID: Utils.ItemID, item: dict) -> dict:
+    return {
         "itemID": itemID,
         "hex": item["hex"],
         "armor": item["armor"],
@@ -392,28 +383,6 @@ async def RemoveItem(
         "rarity": item["rarity"],
         "craft": item.get("craft"),
     }
-
-    def build():
-        profile = Profiles.CachedProfile(scope)
-        if profile is None or f"item.{itemID}" not in PersistentUserData.persistentUserData.get(scope, {}):
-            raise ValueError(Say(Text.ITEM_NOT_OWNED, itemID=itemID, ownerID=ownerID))
-        profile["coins"] += sellValue
-        Profiles.Unshowcase(profile, [itemID])
-        userUpdates = {
-            scope: {
-                "profile": profile,
-                f"item.{itemID}": None,
-            }
-        }
-        appUpdates = {
-            f"itemOwner.{guildID}.{itemID}": None,
-            f"appData.void.{guildID}.{itemID}": record,
-        }
-        return userUpdates, appUpdates, record
-
-    def onSuccess():
-        Lists.AddVoidRecord(guildID, record)
-    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False, onSuccess=onSuccess)
 
 def CleanSearch(current: str) -> str:
     return current.lower().replace("#", "")
@@ -440,6 +409,12 @@ async def _AutocompleteUserItems(
         app_commands.Choice(name=Say(Text.AUTOCOMPLETE_ITEM, itemID=itemID, rarity=FormatRarity(json.loads(row)["rarity"]))[:100], value=itemID)
         for itemID, row in rows
     ]
+
+async def AutocompleteOwnItems(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice]:
+    return await _AutocompleteUserItems(interaction, current)
 
 async def AutocompleteGuildItems(
     interaction: discord.Interaction,
