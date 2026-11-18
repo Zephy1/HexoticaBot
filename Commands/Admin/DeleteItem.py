@@ -4,7 +4,7 @@ import discord
 
 from Utils.Translation import Say, Text
 from Commands.Admin import adminGroup
-from Game import Profiles
+from Game import Selling
 from Utils import Logger
 from Utils import Utils
 from Game import Items
@@ -36,7 +36,8 @@ async def Command_AdminDeleteItem(
         return
 
     normalizedID = parsed.itemID
-    if await Items.RemoveItem(guildID, user.id, normalizedID) is None:
+    result = await Selling.SellItems(guildID, user.id, [normalizedID], Selling.SellSource.ADMIN)
+    if not result.sold:
         await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_DELETE_ITEM_NOT_OWNED, userID=user.id, itemID=normalizedID), ephemeral=True)
         return
 
