@@ -1,11 +1,13 @@
 import math
+import io
 
 from PIL import Image, ImageDraw
 from functools import lru_cache
+from typing import NamedTuple
 
 from Game import ArmorImages
 from Game import RollCard
-from Game import Selling
+from Game import Inventory
 from Utils import Utils
 from Game import Items
 
@@ -28,6 +30,8 @@ nameLine = 14
 detailSize = 11
 pillSize = 9
 swatchSide = 10
+goldColor = (255, 215, 64, 255)
+maxSideColumns = 5
 
 selectedFill = (30, 62, 45, 255)
 lockedFill = (33, 34, 38, 255)
@@ -68,10 +72,11 @@ def WrapName(text: str, width: float) -> list[str]:
             return [first, RollCard.Fit(rest, "Bold", nameSize, width)] if rest else [first]
     return [RollCard.Fit(text, "Bold", nameSize, width)]
 
-def DrawCheck(draw: ImageDraw.ImageDraw, x: float, y: float) -> None:
-    draw.ellipse((S(x), S(y), S(x + badgeSize), S(y + badgeSize)), fill=RollCard.positiveColor)
-    cx, cy = x + badgeSize / 2, y + badgeSize / 2
-    draw.line([(S(cx - 4.5), S(cy)), (S(cx - 1), S(cy + 3.5)), (S(cx + 4.5), S(cy - 3.5))], fill=(20, 40, 28, 255), width=S(2), joint="curve")
+def DrawCheck(draw: ImageDraw.ImageDraw, x: float, y: float, size: float = badgeSize) -> None:
+    grow = size / badgeSize
+    draw.ellipse((S(x), S(y), S(x + size), S(y + size)), fill=RollCard.positiveColor)
+    cx, cy = x + size / 2, y + size / 2
+    draw.line([(S(cx - 4.5 * grow), S(cy)), (S(cx - 1 * grow), S(cy + 3.5 * grow)), (S(cx + 4.5 * grow), S(cy - 3.5 * grow))], fill=(20, 40, 28, 255), width=S(2 * grow), joint="curve")
 
 def DrawPill(draw: ImageDraw.ImageDraw, right: float, y: float, text: str, fill: tuple) -> float:
     width = RollCard.Measure(text, "Bold", pillSize) + pillPad * 2
@@ -80,7 +85,7 @@ def DrawPill(draw: ImageDraw.ImageDraw, right: float, y: float, text: str, fill:
     RollCard.DrawText(draw, left + pillPad, y, text, "Bold", pillSize, white, pillHeight)
     return left
 
-def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, item: Selling.SellItem, selected: bool) -> None:
+def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, item: Inventory.InventoryItem, selected: bool) -> None:
     if selected:
         fill, outline, border = selectedFill, RollCard.positiveColor, 1.5
     elif item.locked:
@@ -124,17 +129,77 @@ def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float,
     RollCard.DrawStar(draw, x + 8, bottomY + 8, 12, RollCard.starColor)
     RollCard.DrawText(draw, x + 8 + 12 + 3, bottomY, Items.FormatRarity(item.rarity), "Regular", detailSize + 1, RollCard.textColor, 16)
     value = str(Utils.CompactNumber(item.value))
-    RollCard.DrawText(draw, x + tileWidth - 8 - RollCard.Measure(value, "Bold", detailSize + 1), bottomY, value, "Bold", detailSize + 1, RollCard.starColor, 16)
+    RollCard.DrawText(draw, x + tileWidth - 8 - RollCard.Measure(value, "Bold", detailSize + 1), bottomY, value, "Bold", detailSize + 1, goldColor, 16)
 
-def Render(items: list[Selling.SellItem], selected: set[Utils.ItemID]) -> bytes:
-    rows = max(1, math.ceil(len(items) / Selling.pageColumns))
-    width = margin * 2 + Selling.pageColumns * tileWidth + (Selling.pageColumns - 1) * tileGap
+def Draw(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], columns: int, minRows: int = 1) -> Image.Image:
+    rows = max(minRows, math.ceil(len(items) / columns))
+    width = margin * 2 + columns * tileWidth + (columns - 1) * tileGap
     height = margin * 2 + rows * tileHeight + (rows - 1) * tileGap
     canvas = Image.new("RGBA", (S(width), S(height)), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     for index, item in enumerate(items):
-        row, column = divmod(index, Selling.pageColumns)
+        row, column = divmod(index, columns)
         x = margin + column * (tileWidth + tileGap)
         y = margin + row * (tileHeight + tileGap)
         DrawTile(canvas, draw, x, y, item, item.itemID in selected)
-    return RollCard.ToPNG(canvas)
+    if not items:
+        grow = max(1, width / 256)
+        draw.rounded_rectangle((S(margin), S(margin), S(width - margin), S(height - margin)), radius=S(tileRadius), outline=RollCard.dividerColor, width=S(1))
+        Centered(draw, width / 2, height / 2 - 9 * grow, "Empty", "Bold", 14 * grow, RollCard.mutedColor, 18 * grow)
+    return canvas
+
+def Render(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID]) -> bytes:
+    return RollCard.ToPNG(Draw(items, selected, Inventory.pageColumns))
+
+class SideLabel(NamedTuple):
+    title: str
+    locked: bool
+    detail: list[tuple[str, bool]]
+    total: str
+    avatar: bytes | None
+
+@lru_cache(maxsize=64)
+def Avatar(data: bytes | None, side: int) -> Image.Image:
+    try:
+        image = Image.open(io.BytesIO(data)).convert("RGBA").resize((side, side), Image.LANCZOS)
+    except Exception:
+        image = Image.new("RGBA", (side, side), RollCard.dividerColor)
+    mask = Image.new("L", (side * 4, side * 4), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, side * 4 - 1, side * 4 - 1), fill=255)
+    image.putalpha(mask.resize((side, side), Image.LANCZOS))
+    return image
+
+def RenderSides(left: list[Inventory.InventoryItem], right: list[Inventory.InventoryItem], labels: list[SideLabel]) -> list[bytes]:
+    count = max(len(left), len(right))
+    columns = min(maxSideColumns, max(2, math.ceil(math.sqrt(count))))
+    rows = max(1, math.ceil(count / columns))
+    pngs = []
+    for items, label in zip((left, right), labels):
+        grid = Draw(items, set(), columns, rows)
+        grow = grid.width / S(256)
+        header = S(40 * grow)
+        side = max(grid.width, grid.height + header)
+        canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        canvas.alpha_composite(grid, ((side - grid.width) // 2, header + (side - header - grid.height) // 2))
+        draw = ImageDraw.Draw(canvas)
+        x = (side - grid.width) / S(1) / 2 + margin
+        canvas.alpha_composite(Avatar(label.avatar, S(32 * grow)), (S(x), S(4 * grow)))
+        textX = x + 38 * grow
+        room = grid.width / S(1) - margin * 2 - 38 * grow
+        indent = 0
+        if label.locked:
+            DrawCheck(draw, textX, 6 * grow, 16 * grow)
+            indent = 21 * grow
+        totalWidth = RollCard.Measure(label.total, "Bold", 13 * grow) if label.total else 0
+        nameRoom = room - indent - (totalWidth + 8 * grow if totalWidth else 0)
+        RollCard.DrawText(draw, textX + indent, 4 * grow, RollCard.Fit(label.title, "Bold", 15 * grow, nameRoom), "Bold", 15 * grow, RollCard.nameColor, 20 * grow)
+        if label.total:
+            RollCard.DrawText(draw, textX + room - totalWidth, 4 * grow, label.total, "Bold", 13 * grow, goldColor, 20 * grow)
+        size = 12 * grow
+        detailWidth = sum(RollCard.Measure(part, "Regular", size) for part, _ in label.detail)
+        size *= min(1, room / detailWidth) if detailWidth else 1
+        for part, gold in label.detail:
+            RollCard.DrawText(draw, textX, 24 * grow, part, "Regular", size, goldColor if gold else RollCard.mutedColor, 16 * grow)
+            textX += RollCard.Measure(part, "Regular", size)
+        pngs.append(RollCard.ToPNG(canvas))
+    return pngs
