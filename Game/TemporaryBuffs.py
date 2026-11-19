@@ -88,7 +88,7 @@ async def BuyLuckPotion(
     def build():
         profile = Profiles.ClaimProfile(guildID, userID)
         if profile["coins"] < cost:
-            raise ValueError(Say(Text.POTION_COST, cost=Utils.FormatNumber(cost), coins=Utils.FormatNumber(profile['coins'])))
+            raise ValueError(Say(Text.POTION_COST, cost=Utils.CompactNumber(cost), coins=Utils.CompactNumber(profile['coins'])))
         profile["coins"] -= cost
         profile["luckClockUntil"] = max(profile.get("luckClockUntil", 0), Clock()) + LUCK_POTION_SECONDS
         expires = WallTime(profile["luckClockUntil"])
@@ -135,7 +135,7 @@ async def FundBeacon(
     def build():
         profile = Profiles.ClaimProfile(guildID, userID)
         if profile["coins"] < coins:
-            raise ValueError(Say(Text.COINS_ONLY, coins=Utils.FormatNumber(profile['coins'])))
+            raise ValueError(Say(Text.COINS_ONLY, coins=Utils.CompactNumber(profile['coins'])))
         beacons = PersistentAppData.GetData(f"beacon.{guildID}", {})
         beacon = beacons.setdefault(kind, {
             "pool": 0,

@@ -27,7 +27,7 @@ class Text(StrEnum):
     GLOBAL_COLOR_LIST_DESCRIPTION = "Enter a list of hex codes separated by spaces (e.g., #334CB2 #191919)"
     GLOBAL_OUTPUT_SHAPE_DESCRIPTION = "Enter the armor shape. (e.g., Vertical, Horizontal, Square)"
     GLOBAL_OUTPUT_VERSION_DESCRIPTION = "Enter the armor version. (e.g., 1.8.9, 1.14+)"
-    GLOBAL_USER = "The user to affect."
+    GLOBAL_USER = "A discord user."
     GLOBAL_ITEM_ID = "The item's ID."
     GLOBAL_ITEM_ID_INVALID = "`{itemID}` is not a valid item ID."
 

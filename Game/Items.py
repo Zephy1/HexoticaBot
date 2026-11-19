@@ -381,7 +381,7 @@ def VoidRecord(itemID: Utils.ItemID, item: dict) -> dict:
         "slot": item["slot"],
         "name": item["name"],
         "rarity": item["rarity"],
-        "craft": item.get("craft"),
+        "craft": item["craft"],
     }
 
 def CleanSearch(current: str) -> str:

@@ -1,11 +1,21 @@
 import MainBot
 
-import discord
 import functools
+import discord
+import asyncio
 
 from Utils.Translation import Say, Text
 from Utils import Logger
 from . import Utils
+
+async def Retry(call):
+    for attempt in range(3):
+        try:
+            return await call()
+        except OSError:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(1 + attempt)
 
 def ButtonCallback(func):
     @functools.wraps(func)

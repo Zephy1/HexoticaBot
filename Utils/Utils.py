@@ -479,14 +479,14 @@ def FormatNumber(number: float, valueType: type = int) -> str:
     return f"{int(number):,}"
 
 SI_SYMBOL = ["", "k", "M", "B", "T", "P", "E"]
-def CompactNumber(number):
+def CompactNumber(number: float) -> str:
     if number == 0:
-        return number
+        return str(number)
 
     tier = int(math.log10(abs(number)) / 3)
 
     if tier == 0:
-        return number
+        return str(number)
 
     suffix = SI_SYMBOL[tier]
     scale = 10 ** (tier * 3)

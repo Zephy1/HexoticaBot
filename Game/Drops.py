@@ -135,7 +135,7 @@ def RollBundleHead(drops: list[Drop], drop: Drop, bundle: Lists.DropBundle, expi
     )
 
 def LootHeader(drop: Drop) -> str:
-    return Say(Text.BONUS_LOOT_HEADER, coins=Utils.FormatNumber(drop.bonusCoins))
+    return Say(Text.BONUS_LOOT_HEADER, coins=Utils.CompactNumber(drop.bonusCoins))
 
 def Footer(rolls: int | None = None) -> str:
     return Say(
@@ -187,7 +187,7 @@ def RollCardLayout(
 
         lootCard = lootCards.get(id(drop))
         if lootCard and bundle is drop.bundles[-1]:
-            alt = "; ".join(f"{item} x{count} {Utils.FormatNumber(coins)}" for item, count, coins, _ in drop.bonusLoot)
+            alt = "; ".join(f"{item} x{count} {Utils.CompactNumber(coins)}" for item, count, coins, _ in drop.bonusLoot)
             blocks.append(([discord.ui.TextDisplay(LootHeader(drop)), ImageGallery(lootCard, f"loot{number}.png", alt, files)], discord.Color.gold()))
 
     blocks[-1][0].append(discord.ui.TextDisplay(footer))

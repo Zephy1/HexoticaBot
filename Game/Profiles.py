@@ -166,7 +166,7 @@ def EarningCapacity(profile: dict, guildID: Utils.GuildID) -> int:
     return min(Upgrades.MAX_EARNING_SLOTS, startingSlots + extraSlots)
 
 def ActiveSlots(profile: dict, guildID: Utils.GuildID) -> list[Utils.SlotIndex]:
-    filled = [slot for slot in profile.get("earning", []) if profile["showcase"].get(str(slot))]
+    filled = [slot for slot in profile["earning"] if profile["showcase"].get(str(slot))]
     return filled[:EarningCapacity(profile, guildID)]
 
 def SetEarningSlots(profile: dict, guildID: Utils.GuildID, slots: list[Utils.SlotIndex]) -> None:
@@ -189,7 +189,7 @@ def Unshowcase(profile: dict, itemIDs: Iterable[Utils.ItemID]) -> None:
         showcase[slot] = [itemID for itemID in showcase[slot] if itemID not in gone]
         if not showcase[slot]:
             del showcase[slot]
-    profile["earning"] = [slot for slot in profile.get("earning", []) if str(slot) in showcase]
+    profile["earning"] = [slot for slot in profile["earning"] if str(slot) in showcase]
 
 def ApplyRefill(
     profile: dict,
@@ -221,8 +221,6 @@ async def EnsureProfile(guildID: Utils.GuildID, userID: Utils.MemberID) -> dict:
 
     def refill(current: dict | None) -> dict:
         profile = current if current is not None else DefaultProfile(guildID)
-        if not isinstance(profile.get("showcase"), dict):
-            profile["showcase"], profile["earning"] = {}, []
         ApplyRefill(profile, guildID, scope)
         return profile
 

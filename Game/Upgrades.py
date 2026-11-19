@@ -278,7 +278,7 @@ async def BuyUpgrade(
         if cost is None:
             raise ValueError(Say(Text.UPGRADE_MAXED, label=definition.label))
         if profile["coins"] < cost:
-            raise ValueError(Say(Text.UPGRADE_COST, label=definition.label, cost=Utils.FormatNumber(cost), coins=Utils.FormatNumber(profile['coins'])))
+            raise ValueError(Say(Text.UPGRADE_COST, label=definition.label, cost=Utils.CompactNumber(cost), coins=Utils.CompactNumber(profile['coins'])))
 
         profile["coins"] -= cost
         profile["upgrades"][upgrade] = Level(profile, upgrade) + 1

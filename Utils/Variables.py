@@ -106,5 +106,5 @@ SETTINGS: dict[str, GameSetting] = dict([
     Define(Setting.DROP_INTERVAL_MIN_SECONDS, 210, 10, 86_400, isInt=True),
     Define(Setting.DROP_INTERVAL_MAX_SECONDS, 450, 10, 86_400, isInt=True),
     Define(Setting.CLAIM_EXPIRY_SECONDS, 300, 10, 900, isInt=True),
-    Define(Setting.TRADE_TIMEOUT_SECONDS, 45, 10, 300, isInt=True),
+    Define(Setting.TRADE_TIMEOUT_SECONDS, 180, 10, 300, isInt=True),
 ])

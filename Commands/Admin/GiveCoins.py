@@ -34,6 +34,6 @@ async def Command_AdminGiveCoins(
     )
     await Logger.SendInteractionMessage(
         interaction=interaction,
-        message=Say(Text.ADMIN_GIVE_COINS_GAVE, amount=Utils.FormatNumber(abs(amount)), userID=user.id, total=Utils.FormatNumber(profile['coins'])),
+        message=Say(Text.ADMIN_GIVE_COINS_GAVE, amount=Utils.CompactNumber(abs(amount)), userID=user.id, total=Utils.CompactNumber(profile['coins'])),
         ephemeral=True,
     )
