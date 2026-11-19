@@ -3,6 +3,7 @@ import MainBot
 import discord
 import asyncio
 import json
+import time
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -14,31 +15,53 @@ from Game import Profiles
 from Utils import Logger
 from Utils import Utils
 
+maxTradeItems = 24
+
 tradesByMessage: dict[Utils.MessageID, "TradeData"] = {}
 busyUsers: dict[tuple[Utils.GuildID, Utils.MemberID], "TradeData"] = {}
 
 class TradeState(Enum):
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    DECLINED = "declined"
+    INVITED = "invited"
+    OFFERING = "offering"
+    EXECUTING = "executing"
+    DONE = "done"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
     FAILED = "failed"
+
+openStates = (TradeState.INVITED, TradeState.OFFERING)
 
 @dataclass(slots=True, eq=False)
 class TradeData:
     guildID: Utils.GuildID
     sender: Utils.MemberID
     recipient: Utils.MemberID
-    senderItems: list[Utils.ItemID]
-    recipientItems: list[Utils.ItemID]
-    offerCoins: int
-    requestCoins: int
+    items: dict[Utils.MemberID, list[Utils.ItemID]] = field(init=False)
+    coins: dict[Utils.MemberID, int] = field(init=False)
+    ready: set[Utils.MemberID] = field(default_factory=set, init=False)
+    names: dict[Utils.MemberID, str] = field(default_factory=dict, init=False)
+    avatars: dict[Utils.MemberID, bytes | None] = field(default_factory=dict, init=False)
     message: discord.Message | None = field(default=None, init=False)
-    state: TradeState = field(default=TradeState.PENDING, init=False)
+    view: discord.ui.LayoutView | None = field(default=None, init=False)
+    state: TradeState = field(default=TradeState.INVITED, init=False)
+    lastActivity: float = field(default_factory=time.monotonic, init=False)
+
+    def __post_init__(self) -> None:
+        self.items = {self.sender: [], self.recipient: []}
+        self.coins = {self.sender: 0, self.recipient: 0}
+
+    def Members(self) -> tuple[Utils.MemberID, Utils.MemberID]:
+        return self.sender, self.recipient
+
+    def Other(self, userID: Utils.MemberID) -> Utils.MemberID:
+        return self.recipient if userID == self.sender else self.sender
 
     def BusyKeys(self) -> tuple:
         return (self.guildID, self.sender), (self.guildID, self.recipient)
+
+    @property
+    def isOpen(self) -> bool:
+        return self.state in openStates
 
 def IsMemberBusy(
     guildID: Utils.GuildID,
@@ -51,7 +74,8 @@ def PendingItems(guildID: Utils.GuildID) -> set[Utils.ItemID]:
         itemID
         for trade in tradesByMessage.values()
         if trade.guildID == guildID
-        for itemID in (*trade.senderItems, *trade.recipientItems)
+        for itemIDs in trade.items.values()
+        for itemID in itemIDs
     }
 
 def IsItemPending(
@@ -72,19 +96,40 @@ def Free(trade: TradeData) -> None:
         if busyUsers.get(key) is trade:
             del busyUsers[key]
 
+def Touch(trade: TradeData) -> None:
+    trade.lastActivity = time.monotonic()
+
+def Timeout(trade: TradeData) -> int:
+    return Utils.GetSettingValueFromGuild(trade.guildID, Utils.Setting.TRADE_TIMEOUT_SECONDS)
+
+def Describe(
+    trade: TradeData,
+    userID: Utils.MemberID,
+    worth: int | None = None,
+) -> list[tuple[str, bool]]:
+    parts: list[tuple[str, bool]] = []
+    count = len(trade.items[userID])
+    if count:
+        parts.append((Say(Text.TRADE_PART_ITEMS, count=count, s=Utils.PluralS(count)), False))
+        if worth is not None:
+            parts.append((Say(Text.TRADE_PART_WORTH, value=Utils.CompactNumber(worth)), True))
+    if trade.coins[userID]:
+        if parts:
+            parts.append((Say(Text.TRADE_PART_JOIN), False))
+        parts.append((Say(Text.TRADE_PART_COINS, coins=Utils.CompactNumber(trade.coins[userID])), True))
+    return parts
+
 async def CloseTrade(
     trade: TradeData,
     title: str,
     description: str,
 ) -> None:
     Free(trade)
-    embed = MainBot.CreateDefaultEmbed(
-        title=Say(Text.TRADE_TITLE, title=title, sender=trade.sender, recipient=trade.recipient)[:256],
-        description=description,
-        color=discord.Color.greyple(),
-    )
+    closed = discord.ui.LayoutView(timeout=None)
+    text = Say(Text.TRADE_TITLE, title=title, sender=trade.sender, recipient=trade.recipient)
+    closed.add_item(discord.ui.Container(discord.ui.TextDisplay(f"{text}\n{description}"), accent_color=discord.Color.greyple()))
     try:
-        await trade.message.edit(embed=embed, view=None)
+        await trade.message.edit(view=closed, attachments=[])
     except discord.HTTPException:
         pass
 
@@ -94,43 +139,69 @@ async def Reply(
 ) -> None:
     await Logger.SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
 
-async def Claim(
+async def Guard(
     interaction: discord.Interaction,
-    role: str,
-    newState: TradeState,
+    states: tuple[TradeState, ...],
+    role: str | None = None,
 ) -> TradeData | None:
     trade = tradesByMessage.get(interaction.message.id)
-    if trade is None or trade.state is not TradeState.PENDING:
+    if trade is None or trade.state not in states:
         await Reply(interaction, Say(Text.TRADE_NOT_PENDING))
         return None
-    if interaction.user.id != getattr(trade, role):
-        await Reply(interaction, Say(Text.TRADE_NOT_YOURS))
+    allowed = trade.Members() if role is None else (getattr(trade, role),)
+    if interaction.user.id not in allowed:
+        await Reply(interaction, Say(Text.TRADE_OWN_REQUEST if interaction.user.id in trade.Members() else Text.TRADE_NOT_YOURS))
         return None
-    trade.state = newState
+    Touch(trade)
     return trade
 
 async def Expire(trade: TradeData) -> None:
-    await asyncio.sleep(Utils.GetSettingValueFromGuild(trade.guildID, Utils.Setting.TRADE_TIMEOUT_SECONDS))
-    if trade.state is TradeState.PENDING:
+    while trade.isOpen:
+        remaining = trade.lastActivity + Timeout(trade) - time.monotonic()
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+            continue
         trade.state = TradeState.EXPIRED
         await CloseTrade(trade, Say(Text.TRADE_EXPIRED_TITLE), Say(Text.TRADE_EXPIRED_BODY))
 
 def ArmTimeout(trade: TradeData) -> None:
     MainBot.FireAndForget(Expire(trade))
 
-def AcceptBuild(trade: TradeData):
+def Accept(trade: TradeData) -> None:
+    trade.state = TradeState.OFFERING
+
+def SetOffer(
+    trade: TradeData,
+    userID: Utils.MemberID,
+    itemIDs: list[Utils.ItemID],
+    coins: int,
+) -> bool:
+    if trade.state is not TradeState.OFFERING:
+        return False
+    if set(trade.items[userID]) == set(itemIDs) and trade.coins[userID] == coins:
+        return False
+    trade.items[userID] = list(itemIDs)
+    trade.coins[userID] = coins
+    trade.ready.clear()
+    return True
+
+def Lock(
+    trade: TradeData,
+    userID: Utils.MemberID,
+) -> bool:
+    if not any(trade.items.values()) and not any(trade.coins.values()):
+        return False
+    trade.ready.add(userID)
+    if trade.ready >= set(trade.Members()):
+        trade.state = TradeState.EXECUTING
+    return True
+
+def ExecuteBuild(trade: TradeData):
     guildID = trade.guildID
-    sides = (
-        (trade.sender, trade.recipient, trade.senderItems),
-        (trade.recipient, trade.sender, trade.recipientItems),
-    )
-    payments = (
-        (trade.sender, trade.offerCoins),
-        (trade.recipient, trade.requestCoins),
-    )
+    members = trade.Members()
 
     def build():
-        scopes = {uid: Profiles.Scope(guildID, uid) for uid in (trade.sender, trade.recipient)}
+        scopes = {uid: Profiles.Scope(guildID, uid) for uid in members}
         profiles = {}
         for uid, scope in scopes.items():
             profile = Profiles.CachedProfile(scope)
@@ -138,48 +209,44 @@ def AcceptBuild(trade: TradeData):
                 raise ValueError(Say(Text.TRADE_NO_PROFILE))
             profiles[uid] = profile
 
-        for payer, cost in payments:
-            if profiles[payer]["coins"] < cost:
-                raise ValueError(Say(Text.TRADE_NO_COINS, payer=payer))
+        for uid in members:
+            if profiles[uid]["coins"] < trade.coins[uid]:
+                raise ValueError(Say(Text.TRADE_NO_COINS, payer=uid))
 
         userUpdates = {scope: {} for scope in scopes.values()}
         appUpdates = {}
-        for giver, taker, itemIDs in sides:
+        for giver in members:
+            taker = trade.Other(giver)
             owned = PersistentUserData.persistentUserData.get(scopes[giver], {})
-            for itemID in itemIDs:
+            for itemID in trade.items[giver]:
                 row = owned.get(f"item.{itemID}")
                 if row is None:
                     raise ValueError(Say(Text.TRADE_NOT_OWNER, giver=giver, itemID=itemID))
                 userUpdates[scopes[giver]][f"item.{itemID}"] = None
                 userUpdates[scopes[taker]][f"item.{itemID}"] = json.loads(row)
                 appUpdates[f"itemOwner.{guildID}.{itemID}"] = taker
-            given = set(itemIDs)
-            Profiles.Unshowcase(profiles[giver], given)
 
-        delta = trade.requestCoins - trade.offerCoins
-        profiles[trade.sender]["coins"] += delta
-        profiles[trade.recipient]["coins"] -= delta
-
-        for uid, profile in profiles.items():
+        for uid in members:
+            profile = profiles[uid]
+            Profiles.Unshowcase(profile, trade.items[uid])
+            profile["coins"] += trade.coins[trade.Other(uid)] - trade.coins[uid]
             userUpdates[scopes[uid]]["profile"] = profile
 
-        itemCount = len(trade.senderItems) + len(trade.recipientItems)
-        return userUpdates, appUpdates, itemCount
+        return userUpdates, appUpdates, None
 
     return build
 
-async def HandleAccept(interaction: discord.Interaction) -> None:
-    trade = await Claim(interaction, "recipient", TradeState.ACCEPTED)
-    if trade is None:
-        return
+async def Execute(
+    trade: TradeData,
+    interaction: discord.Interaction,
+) -> None:
     try:
-        await Profiles.EnsureProfile(trade.guildID, trade.sender)
-        await Profiles.EnsureProfile(trade.guildID, trade.recipient)
-        scopes = [Profiles.Scope(trade.guildID, uid) for uid in (trade.sender, trade.recipient)]
-        itemCount = await Atomic.AtomicUpdate(
+        for uid in trade.Members():
+            await Profiles.EnsureProfile(trade.guildID, uid)
+        await Atomic.AtomicUpdate(
             trade.guildID,
-            scopes,
-            AcceptBuild(trade),
+            [Profiles.Scope(trade.guildID, uid) for uid in trade.Members()],
+            ExecuteBuild(trade),
             useCommitLock=False,
         )
     except Exception as e:
@@ -188,26 +255,36 @@ async def HandleAccept(interaction: discord.Interaction) -> None:
         await CloseTrade(trade, Say(Text.TRADE_FAILED_TITLE), reason)
         await Reply(interaction, reason)
         return
-    await CloseTrade(trade, Say(Text.TRADE_DONE_TITLE), Say(Text.TRADE_DONE_BODY, sender=trade.sender, recipient=trade.recipient, count=itemCount, s=Utils.PluralS(itemCount)))
+    trade.state = TradeState.DONE
     await Reply(interaction, Say(Text.TRADE_DONE_REPLY))
+    await trade.view.Finish()
 
+async def ShutdownTrades() -> None:
+    await Atomic.WaitCommitsIdle(5)
+    openTrades = [trade for trade in tradesByMessage.values() if trade.isOpen]
+    for trade in openTrades:
+        trade.state = TradeState.CANCELLED
+    try:
+        async with asyncio.timeout(10):
+            await asyncio.gather(*(CloseTrade(trade, Say(Text.TRADE_CANCELLED_TITLE), Say(Text.TRADE_SHUTDOWN_BODY)) for trade in openTrades), return_exceptions=True)
+    except TimeoutError:
+        pass
 
 async def Resolve(
     interaction: discord.Interaction,
-    role: str,
+    states: tuple[TradeState, ...],
+    role: str | None,
     state: TradeState,
     title: Text,
     body: Text,
     reply: Text,
 ) -> None:
-    trade = await Claim(interaction, role, state)
+    trade = await Guard(interaction, states, role)
     if trade is None:
         return
-    await CloseTrade(trade, Say(title), Say(body, userID=getattr(trade, role)))
+    trade.state = state
+    await CloseTrade(trade, Say(title), Say(body, userID=interaction.user.id))
     await Reply(interaction, Say(reply))
 
-async def HandleDecline(interaction: discord.Interaction) -> None:
-    await Resolve(interaction, "recipient", TradeState.DECLINED, Text.TRADE_DECLINED_TITLE, Text.TRADE_DECLINED_BODY, Text.TRADE_DECLINED_REPLY)
-
 async def HandleCancel(interaction: discord.Interaction) -> None:
-    await Resolve(interaction, "sender", TradeState.CANCELLED, Text.TRADE_CANCELLED_TITLE, Text.TRADE_CANCELLED_BODY, Text.TRADE_CANCELLED_REPLY)
+    await Resolve(interaction, openStates, None, TradeState.CANCELLED, Text.TRADE_CANCELLED_TITLE, Text.TRADE_CANCELLED_BODY, Text.TRADE_CANCELLED_REPLY)

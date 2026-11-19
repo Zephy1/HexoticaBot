@@ -24,6 +24,7 @@ from Game import TemporaryBuffs
 from Utils import Variables
 from Game import Profiles
 from Utils import Logger
+from Game import Trading
 from Utils import Utils
 from Game import Drops
 from Game import Lists
@@ -294,6 +295,7 @@ def RequestShutdown(signum=None, frame=None):
 async def ShutdownAndClose():
     for step in (
         Drops.ShutdownDrops,
+        Trading.ShutdownTrades,
         Logger.CloseSharedSession,
     ):
         try:
