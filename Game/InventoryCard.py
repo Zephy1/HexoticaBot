@@ -4,6 +4,7 @@ import io
 from PIL import Image, ImageDraw
 from functools import lru_cache
 from typing import NamedTuple
+from types import SimpleNamespace
 
 from Game import ArmorImages
 from Game import RollCard
@@ -52,8 +53,7 @@ def Icon(slot: str, hexCode: str) -> Image.Image:
         image = ArmorImages.Crop(ArmorImages.LeatherPiece(Utils.ArmorSlot(slot), hexCode))
     except Exception:
         return PlaceholderIcon(hexCode)
-    fit = S(iconSide) / max(image.size)
-    return image.resize((max(1, round(image.width * fit)), max(1, round(image.height * fit))), Image.LANCZOS)
+    return ArmorImages.Fit(image, S(iconSide))
 
 def Fade(icon: Image.Image) -> Image.Image:
     faded = icon.copy()

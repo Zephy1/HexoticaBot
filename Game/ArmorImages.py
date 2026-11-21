@@ -34,6 +34,10 @@ versionedItems = {
     "SpaceHelmet",
 }
 
+threePieceFixed = {
+    Utils.ArmorSlot.HELMET: "SpaceHelmet.webp",
+}
+
 def HelmetFiles(armors: tuple, suffix: str) -> dict[Utils.ArmorType, dict[Utils.ArmorSlot, str]]:
     return {armor: {Utils.ArmorSlot.HELMET: f"{armor.name.title().replace('_', '')}{suffix}"} for armor in armors}
 
@@ -100,26 +104,64 @@ def Crop(image: Image.Image) -> Image.Image:
     box = image.getbbox()
     return image.crop(box) if box else image
 
-def SlotImage(slot: Utils.ArmorSlot, owned: dict, fixed: dict[Utils.ArmorSlot, str]) -> Image.Image | None:
+@lru_cache(maxsize=1)
+def LeatherSizes() -> dict[Utils.ArmorSlot, tuple[int, int]]:
+    try:
+        return {slot: Crop(LeatherPiece(slot, "FFFFFF")).size for slot in slotOrder}
+    except Exception:
+        return {slot: (imageSize, imageSize) for slot in slotOrder}
+
+def ReferenceSize() -> int:
+    return max(max(size) for size in LeatherSizes().values())
+
+@lru_cache(maxsize=1)
+def SlotHeights() -> dict[Utils.ArmorSlot, int]:
+    heights = {slot: size[1] for slot, size in LeatherSizes().items()}
+    for fixed in (*fixedPieces.values(), threePieceFixed):
+        for slot, name in fixed.items():
+            try:
+                heights[slot] = max(heights[slot], Crop(Load(name)).height)
+            except Exception:
+                pass
+    return heights
+
+def CellHeight(slot: Utils.ArmorSlot, pixels: int) -> int:
+    return round(SlotHeights()[slot] * pixels / ReferenceSize())
+
+def Seat(slot: Utils.ArmorSlot, image: Image.Image, block: bool = False, seated: bool = True) -> Image.Image:
+    if not seated or slot != Utils.ArmorSlot.HELMET or block:
+        return image
+    seated = Image.new("RGBA", (image.width, max(image.height, SlotHeights()[slot])), (0, 0, 0, 0))
+    seated.paste(image, (0, seated.height - image.height))
+    return seated
+
+def Fit(image: Image.Image, pixels: int) -> Image.Image:
+    fit = pixels / ReferenceSize()
+    return image.resize((max(1, round(image.width * fit)), max(1, round(image.height * fit))), Image.LANCZOS)
+
+def SlotImage(slot: Utils.ArmorSlot, owned: dict, fixed: dict[Utils.ArmorSlot, str], seated: bool) -> Image.Image | None:
     if slot in owned:
-        return Crop(LeatherPiece(slot, owned[slot].hex))
+        return Seat(slot, Crop(LeatherPiece(slot, owned[slot].hex)), seated=seated)
     if slot in fixed:
-        return Crop(Load(fixed[slot]))
+        return Seat(slot, Crop(Load(fixed[slot])), any(word in fixed[slot].lower() for word in blockHelmets), seated)
     return None
 
-def SetSlots(pieces: list) -> list[tuple[Utils.ArmorSlot, object, Image.Image | None]]:
+def SetSlots(pieces: list, showFixed: bool = False, seated: bool = False) -> list[tuple[Utils.ArmorSlot, object, Image.Image | None]]:
     armors = {piece.armor for piece in pieces}
     if len(armors) != 1 or len({piece.slot for piece in pieces}) != len(pieces):
-        return [
-            (piece.slot, piece, Crop(LeatherPiece(piece.slot, piece.hex)))
+        rows = [
+            (piece.slot, piece, Seat(piece.slot, Crop(LeatherPiece(piece.slot, piece.hex)), seated=seated))
             for piece in sorted(pieces, key=lambda piece: slotOrder.index(piece.slot))
         ]
+        if showFixed and len(armors) > 1 and armors <= Utils.THREE_PIECE:
+            rows.insert(0, (Utils.ArmorSlot.HELMET, None, SlotImage(Utils.ArmorSlot.HELMET, {}, threePieceFixed, seated)))
+        return rows
 
     armor = armors.pop()
     owned = {piece.slot: piece for piece in pieces}
     fixed = fixedPieces.get(armor, {})
     whole = set(Utils.ARMOR_SETS[armor].pieces) if armor in Utils.ARMOR_SETS else set()
-    if not whole <= set(owned):
+    if not showFixed and not whole <= set(owned):
         fixed = {slot: name for slot, name in fixed.items() if slot != Utils.ArmorSlot.HELMET}
     slots = whole | set(fixed) | set(owned)
-    return [(slot, owned.get(slot), SlotImage(slot, owned, fixed)) for slot in slotOrder if slot in slots]
+    return [(slot, owned.get(slot), SlotImage(slot, owned, fixed, seated)) for slot in slotOrder if slot in slots]

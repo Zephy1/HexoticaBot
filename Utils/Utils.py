@@ -272,7 +272,7 @@ ARMOR_SETS: dict[ArmorType, ArmorSet] = {
         ArmorSlot.LEGGINGS: 30.00,
         ArmorSlot.BOOTS: 20.00,
     }),
-    ArmorType.PACK: ArmorSet({  # 125 chestplate, 20 helmet (only ever drops as single pieces)
+    ArmorType.PACK: ArmorSet({  # 125 chestplate, 20 helmet
         ArmorSlot.HELMET: 100,
         ArmorSlot.CHESTPLATE: 100,
     }),
@@ -328,6 +328,14 @@ ARMOR_SETS: dict[ArmorType, ArmorSet] = {
         ArmorSlot.BOOTS: 28.13,
     }),
 }
+
+THREE_PIECE = frozenset({
+    ArmorType.OBSIDIAN_CHESTPLATE,
+    ArmorType.STEREO_PANTS,
+    ArmorType.SQUID_BOOTS,
+    ArmorType.FARMER_BOOTS,
+    ArmorType.RANCHER_BOOTS,
+})
 
 @dataclass(frozen=True, slots=True)
 class HexColor:
