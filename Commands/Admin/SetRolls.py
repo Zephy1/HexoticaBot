@@ -4,7 +4,7 @@ import discord
 
 from Database import PersistentUserData
 from Utils.Translation import Say, Text
-from Commands.Admin import adminGroup
+from Commands.Admin import adminGroup, RequireTarget
 from Game import Profiles
 from Utils import Logger
 from Utils import Utils
@@ -17,7 +17,7 @@ from Utils import Utils
         "user": Say(Text.GLOBAL_USER),
         "amount": Say(Text.ADMIN_SET_ROLLS_AMOUNT),
     },
-    permission="owner",
+    permission=Utils.Permission.OWNER,
 )
 async def Command_AdminSetRolls(
     interaction: discord.Interaction,
@@ -25,8 +25,7 @@ async def Command_AdminSetRolls(
     amount: int,
 ):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    guildID, memberID = await Utils.RequireGuildAndMember(interaction.guild_id, user.id, interaction)
-    await Profiles.EnsureProfile(guildID, user.id)
+    guildID = await RequireTarget(interaction, user)
 
     await PersistentUserData.ModifyUserData(
         Profiles.Scope(guildID, user.id), "profile",

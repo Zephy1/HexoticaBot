@@ -32,6 +32,7 @@ ItemIndex = int
 SlotIndex = int
 BundleID = str
 Setting = Variables.Setting
+Permission = Variables.Permission
 SettingName = str
 SendableChannel = discord.TextChannel | discord.VoiceChannel | discord.StageChannel | discord.Thread
 Coins = int
@@ -67,23 +68,7 @@ class ArmorSlot(StrEnum):
     def _missing_(cls, value):
         return cls.__members__.get(value.strip().upper()) if isinstance(value, str) else None
 
-class ColorType(StrEnum):
-    Exotic = "Exotic"
-    PureDye = "Pure"
-    TrueDye = "True"
-    OtherTrueDye = "OtherTrue"
-    Fairy = "Fairy"
-    # OGFairy = "OG Fairy"
-    Crystal = "Crystal"
-    Armor = "Armor"
-    Bleached = "Bleached"
-    _None = "None"
-
-    def __str__(self):
-        return self.value
-
 class ArmorType(StrEnum):
-    # Unsorted
     ANGLER = "ANGLER"
     BACKWATER = "BACKWATER"
     MAGMA = "MAGMA"
@@ -95,8 +80,7 @@ class ArmorType(StrEnum):
     CHEAP_TUXEDO = "CHEAP_TUXEDO"
     FANCY_TUXEDO = "FANCY_TUXEDO"
     ELEGANT_TUXEDO = "ELEGANT_TUXEDO"
-    PACK_HELMET = "PACK"
-    PACK_CHESTPLATE = "PACK"
+    PACK = "PACK"
     CRYSTAL = "CRYSTAL"
     EMERALD = "EMERALD"
     FAIRY = "FAIRY"
@@ -129,35 +113,9 @@ class ArmorType(StrEnum):
     OLD = "OLD"
     STRONG = "STRONG"
 
-    # Rarity 1
-
-    # Rarity 2
-
-    # Rarity 3
-
-    # Rarity 4
-
-    # Rarity 5
-
-    # Rarity Max
-
 @dataclass(frozen=True)
 class ArmorSet:
     pieces: dict[ArmorSlot, float]
-
-    @property
-    def size(self) -> int:
-        return len(self.pieces)
-
-    @property
-    def pos(self) -> list[float]:
-        return list(self.pieces.values())
-
-    def to_shape(self, **overrides) -> dict:
-        return {"size": self.size, "pos": self.pos, **overrides}
-
-    def describe(self, pattern) -> list[ArmorSlot]:
-        return [slot for slot, kept in zip(self.pieces, pattern) if kept]
 
 ARMOR_SETS: dict[ArmorType, ArmorSet] = {
     ArmorType.MAGMA: ArmorSet({  # 180,000
@@ -314,7 +272,8 @@ ARMOR_SETS: dict[ArmorType, ArmorSet] = {
         ArmorSlot.LEGGINGS: 30.00,
         ArmorSlot.BOOTS: 20.00,
     }),
-    ArmorType.PACK_CHESTPLATE: ArmorSet({  # 125
+    ArmorType.PACK: ArmorSet({  # 125 chestplate, 20 helmet (only ever drops as single pieces)
+        ArmorSlot.HELMET: 100,
         ArmorSlot.CHESTPLATE: 100,
     }),
     ArmorType.BACKWATER: ArmorSet({  # 100
@@ -353,9 +312,6 @@ ARMOR_SETS: dict[ArmorType, ArmorSet] = {
         ArmorSlot.LEGGINGS: 31.25,
         ArmorSlot.BOOTS: 28.13,
     }),
-    ArmorType.PACK_HELMET: ArmorSet({  # 20
-        ArmorSlot.HELMET: 100,
-    }),
     ArmorType.ELEGANT_TUXEDO: ArmorSet({  # 20
         ArmorSlot.CHESTPLATE: 50.00,
         ArmorSlot.LEGGINGS: 30.00,
@@ -387,10 +343,6 @@ class HexColor:
     @property
     def rgbInt(self) -> int:
         return self.rgb[0] << 16 | self.rgb[1] << 8 | self.rgb[2]
-
-    @property
-    def signature(self) -> str:
-        return f"{self.hexCode[0]}{self.hexCode[2]}{self.hexCode[4]}"
 HexColor.BLANK = HexColor(hexCode="000000", rgb=(0, 0, 0), isBlank=True)
 
 def RGBToHex(rgb) -> str:
@@ -542,6 +494,20 @@ def GetSettingValue(guildConfig: dict | None, name: SettingName):
 def GetSettingValueFromGuild(guildID: GuildID, name: SettingName):
     return GetSettingValue(PersistentAppData.PeekData(f"guildConfig.{guildID}"), name)
 
+def CheckNumber(
+    value,
+    field: str,
+    low: float | None = None,
+    high: float | None = None,
+    isInt: bool = False,
+) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(Say(Text.FIELD_NOT_NUMBER, field=field))
+    if (low is not None and not value >= low) or (high is not None and not value <= high):
+        raise ValueError(Say(Text.FIELD_RANGE if high is not None else Text.FIELD_MIN, field=field, low=low, high=high))
+    if isInt and value % 1:
+        raise ValueError(Say(Text.FIELD_NOT_INTEGER, field=field))
+
 async def SetSetting(
     guildID: GuildID,
     name: SettingName,
@@ -551,12 +517,7 @@ async def SetSetting(
     if definition is None:
         raise ValueError(Say(Text.SETTING_UNKNOWN, name=name))
     if value is not None:
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            raise ValueError(Say(Text.FIELD_NOT_NUMBER, field=definition.label))
-        if not definition.minimum <= value <= definition.maximum:
-            raise ValueError(Say(Text.FIELD_RANGE, field=definition.label, low=definition.minimum, high=definition.maximum))
-        if definition.isInt and value != int(value):
-            raise ValueError(Say(Text.FIELD_NOT_INTEGER, field=definition.label))
+        CheckNumber(value, definition.label, definition.minimum, definition.maximum, definition.isInt)
     config = PersistentAppData.GetData(f"guildConfig.{guildID}", {})
     settings = config.setdefault("settings", {})
     if value is None:

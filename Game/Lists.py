@@ -33,6 +33,7 @@ class BundlePiece:
     name: str
     craft: dict
     voidID: str = ""
+    bundleID: Utils.BundleID = ""
 
 @dataclass(slots=True, eq=False)
 class DropBundle:
@@ -222,21 +223,20 @@ class ListIndex:
         with self.dbLock:
             return self.db.execute("SELECT bundleNumber, bundleID, name, rarity, size, data FROM bundles WHERE bundleNumber >= ? AND bundleNumber <= ?", (lo, hi)).fetchall()
 
+    def FindPiece(
+        self,
+        bundleID: Utils.BundleID,
+        slot: str,
+    ) -> tuple | None:
+        with self.dbLock:
+            return self.db.execute(
+                "SELECT p.hex, p.armor, p.rarity, p.name, p.data FROM pieces p JOIN bundles b ON b.bundleNumber = p.bundleNumber "
+                "WHERE b.bundleID = ? AND p.slot = ?",
+                (bundleID, slot)).fetchone()
+
     def PiecesOf(self, bundleNumber: int) -> list:
         with self.dbLock:
             return self.db.execute("SELECT hex, armor, slot, rarity, name, data FROM pieces WHERE bundleNumber = ? ORDER BY position", (bundleNumber,)).fetchall()
-
-    def PieceBundleCounts(
-        self,
-        hexCode: Utils.HexCode,
-        armor: Utils.ArmorType,
-        slot: str,
-    ) -> dict:
-        with self.dbLock:
-            return dict(self.db.execute(
-                "SELECT b.bundleID, COUNT(*) FROM pieces p JOIN bundles b ON b.bundleNumber = p.bundleNumber "
-                "WHERE p.hex = ? AND p.armor = ? AND p.slot = ? GROUP BY b.bundleID",
-                (hexCode, armor, slot)).fetchall())
 
     def CountExistingIDs(self, bundleIDs: Iterable[Utils.BundleID]) -> int:
         bundleIDs = list(bundleIDs)
@@ -294,7 +294,7 @@ class ListIndex:
 async def BundleFromRow(row) -> DropBundle:
     pieceRows = await asyncio.to_thread(index.PiecesOf, row[0])
     pieces = [
-        BundlePiece(pieceRow[0], pieceRow[1], Utils.ArmorSlot(pieceRow[2]), pieceRow[3], pieceRow[4], json.loads(pieceRow[5]))
+        BundlePiece(pieceRow[0], pieceRow[1], Utils.ArmorSlot(pieceRow[2]), pieceRow[3], pieceRow[4], json.loads(pieceRow[5]), bundleID=row[1])
         for pieceRow in pieceRows
     ]
     return DropBundle(row[1], row[2].replace("_", " "), row[3], pieces, void=False, info=json.loads(row[5]))
@@ -314,8 +314,7 @@ def LoadServerState() -> None:
             _, guildID, bundleID = key.split(".", 2)
             retiredIDs.setdefault(int(guildID), set()).add(bundleID)
         elif key.startswith("void."):
-            _, guildID, itemID = key.split(".", 2)
-            bisect.insort(voidPools.setdefault(int(guildID), []), (value["rarity"], itemID, value))
+            AddVoidRecord(int(key.split(".", 2)[1]), value)
 
 async def WarnMissingRetired() -> None:
     for guildID, ids in retiredIDs.items():
@@ -367,7 +366,12 @@ def ConsumeVoidBundle(guildID: Utils.GuildID, bundle: DropBundle) -> None:
     pool[:] = [entry for entry in pool if entry[1] not in ids]
 
 def AddVoidRecord(guildID: Utils.GuildID, record: dict) -> None:
-    bisect.insort(voidPools.setdefault(guildID, []), (record["rarity"], record["itemID"], record))
+    row = index.FindPiece(record["bundleID"], record["slot"])
+    if row is None:
+        return
+    hexCode, armor, rarity, name, data = row
+    piece = {**record, "hex": hexCode, "armor": armor, "rarity": rarity, "name": name, "craft": json.loads(data)}
+    bisect.insort(voidPools.setdefault(guildID, []), (rarity, record["itemID"], piece))
 
 def VoidBounds(guildID: Utils.GuildID, rarityRange) -> tuple[int, int]:
     pool = voidPools.get(guildID, [])
@@ -391,10 +395,10 @@ def PickVoided(
     if not free:
         return None
     pieces = [
-        BundlePiece(record["hex"], record["armor"], Utils.ArmorSlot(record["slot"]), record["rarity"], record["name"], record.get("craft") or {}, itemID)
+        BundlePiece(record["hex"], record["armor"], Utils.ArmorSlot(record["slot"]), record["rarity"], record["name"], record["craft"], itemID, record["bundleID"])
         for _, itemID, record in random.sample(free, min(count, len(free)))
     ]
-    bundle = DropBundle("void", "Void set" if len(pieces) > 1 else "Void piece", round(sum(piece.rarity for piece in pieces), 2), pieces, void=True, info={})
+    bundle = DropBundle("void", "Wiped set" if len(pieces) > 1 else "Wiped piece", round(sum(piece.rarity for piece in pieces), 2), pieces, void=True, info={})
     ReserveBundle(guildID, bundle)
     return bundle
 

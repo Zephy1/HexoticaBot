@@ -281,6 +281,46 @@ def SafeField(
 
     return fields
 
+def Header(title: str) -> dict:
+    return {"name": f"__{title}__", "value": ""}
+
+def Blank() -> dict:
+    return {"name": "", "value": ""}
+
+def UserFields(userInfo: dict) -> list[dict]:
+    return [
+        Header("User"),
+        *SafeField("Username", userInfo['userDisplayName'], True),
+        *SafeField("User Tag", userInfo['userName'], True),
+        *SafeField("User ID", userInfo['userID'], True),
+    ]
+
+def InteractionFields(userInfo: dict, channelInfo: dict, guildInfo: dict, commandInfo: dict) -> list[dict]:
+    return [
+        *UserFields(userInfo),
+        Blank(),
+        Header("Channel"),
+        *SafeField("Channel Name", channelInfo['channelName'], True),
+        *SafeField("Channel ID", channelInfo['channelID'], True),
+        Blank(),
+        *SafeField("Guild Name", guildInfo['guildName'], True),
+        *SafeField("Guild ID", guildInfo['guildID'], True),
+        Blank(),
+        Header("Command"),
+        *SafeField("Command Name", commandInfo['commandName'], True),
+        *SafeField("Command Options", str(commandInfo['commandOptions']), True),
+        *SafeField("Copyable Command", commandInfo['copyableCommand']),
+    ]
+
+def ErrorFields(message, errorTraceback: str) -> list[dict]:
+    return [
+        Blank(),
+        Header("Error"),
+        *SafeField("Error Message", str(message)),
+        *SafeField("Error Traceback", str(errorTraceback)[-3000:]),
+        Blank(),
+    ]
+
 async def LogError(
     interaction: discord.Interaction,
     client,
@@ -295,87 +335,9 @@ async def LogError(
         errorTraceback = traceback.format_exc()
 
         fields = [
-            {
-                "name": "__User__",
-                "value": "",
-            },
-            {
-                "name": "Username",
-                "value": userInfo['userDisplayName'],
-                "inline": True,
-            },
-            {
-                "name": "User Tag",
-                "value": userInfo['userName'],
-                "inline": True,
-            },
-            {
-                "name": "User ID",
-                "value": userInfo['userID'],
-                "inline": True,
-            },
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "__Channel__",
-                "value": "",
-            },
-            {
-                "name": "Channel Name",
-                "value": channelInfo['channelName'],
-                "inline": True,
-            },
-            {
-                "name": "Channel ID",
-                "value": channelInfo['channelID'],
-                "inline": True,
-            },
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "Guild Name",
-                "value": guildInfo['guildName'],
-                "inline": True,
-            },
-            {
-                "name": "Guild ID",
-                "value": guildInfo['guildID'],
-                "inline": True,
-            },
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "__Command__",
-                "value": "",
-            },
+            *InteractionFields(userInfo, channelInfo, guildInfo, commandInfo),
+            *ErrorFields(message, errorTraceback),
         ]
-        fields.extend(SafeField("Command Name", commandInfo['commandName'], True))
-        fields.extend(SafeField("Command Options", str(commandInfo['commandOptions']), True))
-        fields.extend(SafeField("Copyable Command", commandInfo['copyableCommand']))
-        fields.extend([
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "__Error__",
-                "value": "",
-            },
-        ])
-        fields.extend(SafeField("Error Message", str(message)))
-        fields.extend(SafeField("Error Traceback", str(errorTraceback)[-3000:]))
-        fields.extend([
-            {
-                "name": "",
-                "value": "",
-            }
-        ])
 
         embedData = {
             "title": f"Error With Command /{commandInfo['commandName']}",
@@ -395,9 +357,7 @@ async def LogError(
 
         print(logMessage)
         WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
-        await asyncio.gather(
-            SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
-        )
+        await SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
     except Exception as e:
         print(f"Error logging error: {e}")
 
@@ -417,24 +377,7 @@ async def LogHeadlessError(message: str):
         timestampInfo = GetTimestampInfo()
         errorTraceback = traceback.format_exc()
 
-        fields = [
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "__Error__",
-                "value": "",
-            },
-        ]
-        fields.extend(SafeField("Error Message", str(message)))
-        fields.extend(SafeField("Error Traceback", str(errorTraceback)[-3000:]))
-        fields.extend([
-            {
-                "name": "",
-                "value": "",
-            }
-        ])
+        fields = ErrorFields(message, errorTraceback)
 
         embedData = {
             "title": "Runtime Error",
@@ -450,9 +393,7 @@ async def LogHeadlessError(message: str):
 
         print(logMessage)
         WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
-        await asyncio.gather(
-            SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
-        )
+        await SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
     except Exception as e:
         print(f"Error logging error: {e}")
 
@@ -471,83 +412,8 @@ async def LogCommandUsage(
             "title": f"{userInfo['userDisplayName']} Used Command /{commandInfo['commandName']}",
             "color": Variables.defaultColorHex,
             "fields": [
-                {
-                    "name": "__User__",
-                    "value": "",
-                },
-                {
-                    "name": "Username",
-                    "value": userInfo['userDisplayName'],
-                    "inline": True,
-                },
-                {
-                    "name": "User Tag",
-                    "value": userInfo['userName'],
-                    "inline": True,
-                },
-                {
-                    "name": "User ID",
-                    "value": userInfo['userID'],
-                    "inline": True,
-                },
-                {
-                    "name": "",
-                    "value": "",
-                },
-                {
-                    "name": "__Channel__",
-                    "value": "",
-                },
-                {
-                    "name": "Channel Name",
-                    "value": channelInfo['channelName'],
-                    "inline": True,
-                },
-                {
-                    "name": "Channel ID",
-                    "value": channelInfo['channelID'],
-                    "inline": True,
-                },
-                {
-                    "name": "",
-                    "value": "",
-                },
-                {
-                    "name": "Guild Name",
-                    "value": guildInfo['guildName'],
-                    "inline": True,
-                },
-                {
-                    "name": "Guild ID",
-                    "value": guildInfo['guildID'],
-                    "inline": True,
-                },
-                {
-                    "name": "",
-                    "value": "",
-                },
-                {
-                    "name": "__Command__",
-                    "value": "",
-                },
-                {
-                    "name": "Command Name",
-                    "value": commandInfo['commandName'],
-                    "inline": True,
-                },
-                {
-                    "name": "Command Options",
-                    "value": str(commandInfo['commandOptions']),
-                    "inline": True,
-                },
-                {
-                    "name": "Copyable Command",
-                    "value": commandInfo['copyableCommand'],
-                },
-                {
-                    "name": "",
-                    "value": "",
-                },
+                *InteractionFields(userInfo, channelInfo, guildInfo, commandInfo),
+                Blank(),
             ],
         }
 
@@ -560,9 +426,7 @@ async def LogCommandUsage(
         )
 
         WriteToLogFile(Variables.COMMAND_LOG_FILE_PATH, logMessage)
-        await asyncio.gather(
-            SendToWebhooks(Variables.commandLogWebhooks, f"{Variables.defaultBotName} Command Logger", embedData)
-        )
+        await SendToWebhooks(Variables.commandLogWebhooks, f"{Variables.defaultBotName} Command Logger", embedData)
     except Exception as e:
         print(f"Error logging command usage: {e}")
 
@@ -578,47 +442,12 @@ async def LogRequest(
         "title": f"{userInfo['userDisplayName']} Submitted {requestType} Request",
         "color": Variables.defaultColorHex,
         "fields": [
-            {
-                "name": "__User__",
-                "value": "",
-            },
-            {
-                "name": "Username",
-                "value": userInfo['userDisplayName'],
-                "inline": True,
-            },
-            {
-                "name": "User Tag",
-                "value": userInfo['userName'],
-                "inline": True,
-            },
-            {
-                "name": "User ID",
-                "value": userInfo['userID'],
-                "inline": True,
-            },
-            {
-                "name": "",
-                "value": "",
-            },
-            {
-                "name": "__Request__",
-                "value": "",
-            },
-            {
-                "name": "Request Type",
-                "value": requestType,
-                "inline": True,
-            },
-            {
-                "name": "Request Data",
-                "value": str(requestData),
-                "inline": True,
-            },
-            {
-                "name": "",
-                "value": "",
-            },
+            *UserFields(userInfo),
+            Blank(),
+            Header("Request"),
+            *SafeField("Request Type", requestType, True),
+            *SafeField("Request Data", str(requestData), True),
+            Blank(),
         ],
     }
 
@@ -629,6 +458,4 @@ async def LogRequest(
     )
 
     WriteToLogFile(Variables.REQUESTS_LOG_FILE_PATH, logMessage)
-    await asyncio.gather(
-        SendToWebhooks(Variables.requestsLogWebhooks, f"{Variables.defaultBotName} Request Logger", embedData)
-    )
+    await SendToWebhooks(Variables.requestsLogWebhooks, f"{Variables.defaultBotName} Request Logger", embedData)

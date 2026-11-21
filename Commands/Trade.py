@@ -248,7 +248,10 @@ async def Command_Trade(interaction: discord.Interaction, user: discord.Member):
         await Utils.AbortCommand(interaction, Say(Text.TRADE_THEY_BUSY, user=recipient))
 
     trade = Trading.TradeData(guildID, sender, recipient)
-    trade.names = {sender: interaction.user.display_name, recipient: user.display_name}
+    trade.names = {
+        sender: interaction.user.display_name,
+        recipient: user.display_name,
+    }
     trade.avatars = {member.id: await AvatarBytes(member) for member in (interaction.user, user)}
     trade.view = TradeTable(trade)
     files = await trade.view.Compose()

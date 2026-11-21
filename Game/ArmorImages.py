@@ -1,5 +1,6 @@
 import os
 
+from functools import lru_cache
 from PIL import Image
 
 from Utils import Variables
@@ -13,6 +14,13 @@ overlaySlots = {
     Utils.ArmorSlot.LEGGINGS,
     Utils.ArmorSlot.BOOTS,
 }
+blockHelmets = (
+    "lapis",
+    "leaflet",
+    "sponge",
+    "haybale",
+    "space",
+)
 versionedItems = {
     "LapisHelmet",
     "SpongeHelmet",
@@ -23,6 +31,7 @@ versionedItems = {
     "IronLeggings",
     "IronBoots",
     "ChainmailChestplate",
+    "SpaceHelmet",
 }
 
 def HelmetFiles(armors: tuple, suffix: str) -> dict[Utils.ArmorType, dict[Utils.ArmorSlot, str]]:
@@ -30,15 +39,15 @@ def HelmetFiles(armors: tuple, suffix: str) -> dict[Utils.ArmorType, dict[Utils.
 
 fixedPieces: dict[Utils.ArmorType, dict[Utils.ArmorSlot, str]] = {
     Utils.ArmorType.ANGLER: {Utils.ArmorSlot.HELMET: "DiamondHelmet.webp"},
-    Utils.ArmorType.BAT_PERSON: {Utils.ArmorSlot.HELMET: "BatHelmet.webp"},
     Utils.ArmorType.CHEAP_TUXEDO: {Utils.ArmorSlot.HELMET: "GoldHelmet.webp"},
     Utils.ArmorType.FANCY_TUXEDO: {Utils.ArmorSlot.HELMET: "GoldHelmet.webp"},
     Utils.ArmorType.ELEGANT_TUXEDO: {Utils.ArmorSlot.HELMET: "GoldHelmet.webp"},
-    Utils.ArmorType.PACK_HELMET: {Utils.ArmorSlot.LEGGINGS: "IronLeggings.webp", Utils.ArmorSlot.BOOTS: "IronBoots.webp"},
+    Utils.ArmorType.PACK: {Utils.ArmorSlot.LEGGINGS: "IronLeggings.webp", Utils.ArmorSlot.BOOTS: "IronBoots.webp"},
     Utils.ArmorType.FARM_ARMOR: {Utils.ArmorSlot.HELMET: "HaybaleHelmet.png"},
     Utils.ArmorType.PUMPKIN: {Utils.ArmorSlot.HELMET: "SproutHelmet.png"},
     Utils.ArmorType.TARANTULA: {Utils.ArmorSlot.CHESTPLATE: "ChainmailChestplate.webp", Utils.ArmorSlot.BOOTS: "IronBoots.webp"},
     **HelmetFiles((
+        Utils.ArmorType.BAT_PERSON,
         Utils.ArmorType.BACKWATER,
         Utils.ArmorType.SPOOKY,
         Utils.ArmorType.BLAZE,
@@ -61,14 +70,18 @@ fixedPieces: dict[Utils.ArmorType, dict[Utils.ArmorSlot, str]] = {
     ), "HelmetBaby.webp"),
 }
 
+@lru_cache(maxsize=128)
+def LoadCached(path: str) -> Image.Image:
+    with Image.open(path) as image:
+        return image.resize((imageSize, imageSize)).convert("RGBA")
+
 def Load(name: str) -> Image.Image:
     stem, extension = os.path.splitext(name)
     if stem.startswith("Leather"):
         stem += f"_Version={version}_Size={imageSize}x"
     elif stem in versionedItems:
         stem += f"_Version={version}"
-    path = os.path.join(Variables.ARMOR_IMAGES_PATH, stem + extension)
-    return Image.open(path).resize((imageSize, imageSize)).convert("RGBA")
+    return LoadCached(os.path.join(Variables.ARMOR_IMAGES_PATH, stem + extension)).copy()
 
 def Tint(image: Image.Image, hexCode: str) -> Image.Image:
     *rgb, alpha = image.split()

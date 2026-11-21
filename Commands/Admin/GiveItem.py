@@ -3,8 +3,7 @@ import MainBot
 import discord
 
 from Utils.Translation import Say, Text
-from Commands.Admin import adminGroup
-from Game import Profiles
+from Commands.Admin import adminGroup, RequireTarget
 from Utils import Logger
 from Utils import Utils
 from Game import Items
@@ -24,7 +23,7 @@ from Game import Lists
         "armor_type": Items.AutocompleteArmorTypes,
         "armor_slot": Items.AutocompleteArmorSlots,
     },
-    permission="owner",
+    permission=Utils.Permission.OWNER,
 )
 async def Command_AdminGiveItem(
     interaction: discord.Interaction,
@@ -34,8 +33,7 @@ async def Command_AdminGiveItem(
     hex_code: str,
 ):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    guildID, memberID = await Utils.RequireGuildAndMember(interaction.guild_id, user.id, interaction)
-    await Profiles.EnsureProfile(guildID, user.id)
+    guildID = await RequireTarget(interaction, user)
 
     armorType = Items.GetArmorType(armor_type)
     if armorType is None or armorType not in Lists.index.armorTypes:

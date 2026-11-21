@@ -311,8 +311,8 @@ def ToPNG(canvas: Image.Image) -> bytes:
 def LoadEmojis(bundles: list) -> None:
     wanted = {
         emojiID
-        for bundle in bundles for piece in bundle.pieces
-        for emojiID in re.findall(r"<a?:\w+:(\d+)>", Items.CraftLine(piece.craft))
+        for bundle in bundles for piece in bundle.pieces if piece.craft
+        for emojiID in re.findall(r"<a?:\w+:(\d+)>", Items.DyeText(piece.craft["recipe"]))
         if emojiID not in emojis
     }
     for emojiID in wanted:
@@ -343,14 +343,13 @@ def RenderLoot(loot: list) -> bytes:
     columns = math.ceil(len(loot) / rows)
     cellWidth, cellHeight = lootCell
     gridWidth = columns * cellWidth + (columns - 1) * lootGap
-    width = max(minWidth, gridWidth + pad * 2)
-    left = (width - gridWidth) / 2
+    width = gridWidth + pad * 2
     canvas = Image.new("RGBA", (S(width), S(pad * 2 + rows * cellHeight + (rows - 1) * lootGap)), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     for number, (name, count, coins, image) in enumerate(loot):
         row, column = divmod(number, columns)
         inRow = min(columns, len(loot) - row * columns)
-        x = left + (columns - inRow) * (cellWidth + lootGap) / 2 + column * (cellWidth + lootGap)
+        x = pad + (columns - inRow) * (cellWidth + lootGap) / 2 + column * (cellWidth + lootGap)
         y = pad + row * (cellHeight + lootGap)
         draw.rounded_rectangle((S(x), S(y), S(x + cellWidth), S(y + cellHeight)), radius=S(lootRadius), fill=slotColor, outline=dividerColor, width=S(1))
         canvas.alpha_composite(LootIcon(name, image), (S(x + (cellWidth - lootIcon) / 2), S(y + 8)))
@@ -363,4 +362,4 @@ def RenderLoot(loot: list) -> bytes:
         DrawText(draw, x + (cellWidth - Measure(label, "Regular", 12)) / 2, y + 8 + lootIcon + 4, label, "Regular", 12, mutedColor, 16)
         value = str(Utils.CompactNumber(coins))
         DrawText(draw, x + (cellWidth - Measure(value, "Bold", 14)) / 2, y + 8 + lootIcon + 20, value, "Bold", 14, starColor, 20)
-    return ToPNG(canvas)
+    return ToPNG(canvas.reduce(scale))

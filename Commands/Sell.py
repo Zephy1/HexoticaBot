@@ -86,12 +86,13 @@ async def SellOne(interaction: discord.Interaction, guildID: Utils.GuildID, item
         return
 
     normalizedID = parsed.itemID
-    if Trading.IsItemPending(guildID, normalizedID):
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.SELL_PENDING, itemID=normalizedID), ephemeral=True)
-        return
-
     result = await Selling.SellItems(guildID, interaction.user.id, [normalizedID])
-    message = Say(Text.SELL_DONE, itemID=normalizedID, coins=Utils.CompactNumber(result.coins)) if result.sold else Say(Text.SELL_NOT_OWNED, itemID=normalizedID)
+    if result.sold:
+        message = Say(Text.SELL_DONE, itemID=normalizedID, coins=Utils.CompactNumber(result.coins))
+    elif Trading.IsItemPending(guildID, normalizedID):
+        message = Say(Text.SELL_PENDING, itemID=normalizedID)
+    else:
+        message = Say(Text.SELL_NOT_OWNED, itemID=normalizedID)
     await Logger.SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
 
 @MainBot.AppCommandWithAliases(

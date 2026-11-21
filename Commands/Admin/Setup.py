@@ -73,7 +73,7 @@ class SetupView(Views.Panel):
     adminGroup,
     name="setup",
     description=Say(Text.ADMIN_SETUP_DESCRIPTION),
-    permission="manage",
+    permission=Utils.Permission.MANAGE_SERVER,
 )
 async def Command_AdminSetup(interaction: discord.Interaction):
     guildID = await Utils.RequireGuild(interaction.guild_id, interaction)

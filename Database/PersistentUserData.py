@@ -22,6 +22,7 @@ async def EvictLoop():
         cutoff = time.monotonic() - idleEvictSeconds
         for scope in [key for key, seen in lastAccess.items() if seen < cutoff and not userLocks[key].locked()]:
             persistentUserData.pop(scope, None)
+            userLocks.pop(scope, None)
             del lastAccess[scope]
 
 async def LoadLocked(scope: Utils.UserScope) -> dict:

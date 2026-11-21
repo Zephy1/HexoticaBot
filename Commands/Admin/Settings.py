@@ -50,29 +50,28 @@ async def HandleSettingsReset(interaction: discord.Interaction, guildID: Utils.G
         ephemeral=True,
     )
 
+async def ApplySetting(guildID: Utils.GuildID, settingName: Utils.SettingName, text: str) -> str:
+    definition = Variables.SETTINGS[settingName]
+    raw = text.replace(",", "").replace("_", "").strip()
+    try:
+        value = (int(raw) if definition.isInt else float(raw)) if raw else None
+    except ValueError:
+        return Say(Text.ADMIN_SETTINGS_NOT_INTEGER if definition.isInt else Text.ADMIN_SETTINGS_NOT_NUMBER, value=raw)
+    if value == definition.default:
+        value = None
+    try:
+        await Utils.SetSetting(guildID, settingName, value)
+    except ValueError as e:
+        return str(e)
+    current = Utils.FormatSetting(settingName, Utils.GetSettingValueFromGuild(guildID, settingName))
+    return Say(Text.ADMIN_SETTINGS_RESET if value is None else Text.ADMIN_SETTINGS_SET, setting=definition.label, value=current)
+
 async def HandleSettingsSet(interaction: discord.Interaction, guildID: Utils.GuildID, settingName: Utils.SettingName, value: str | None):
     if value is None:
         await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETTINGS_VALUE_REQUIRED), ephemeral=True)
         return
 
-    definition = Variables.SETTINGS[settingName]
-    try:
-        parsed = int(value) if definition.isInt else float(value)
-    except ValueError:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETTINGS_NOT_INTEGER if definition.isInt else Text.ADMIN_SETTINGS_NOT_NUMBER, value=value), ephemeral=True)
-        return
-
-    try:
-        await Utils.SetSetting(guildID, settingName, parsed)
-    except ValueError as e:
-        await Logger.SendInteractionMessage(interaction=interaction, message=str(e), ephemeral=True)
-        return
-
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.ADMIN_SETTINGS_SET, setting=settingName, value=Utils.FormatSetting(settingName, parsed)),
-        ephemeral=True,
-    )
+    await Logger.SendInteractionMessage(interaction=interaction, message=await ApplySetting(guildID, settingName, value), ephemeral=True)
 
 class SettingModal(discord.ui.Modal):
     def __init__(self, panel: "SettingsPanel", name: str):
@@ -94,21 +93,7 @@ class SettingModal(discord.ui.Modal):
 
     @Views.ButtonCallback
     async def on_submit(self, interaction: discord.Interaction):
-        raw = self.field.value.replace(",", "").replace("_", "").strip()
-        try:
-            value = (int(raw) if self.definition.isInt else float(raw)) if raw else None
-        except ValueError:
-            await self.panel.Show(interaction, Say(Text.ADMIN_SETTINGS_NOT_INTEGER if self.definition.isInt else Text.ADMIN_SETTINGS_NOT_NUMBER, value=raw))
-            return
-        if value == self.definition.default:
-            value = None
-        try:
-            await Utils.SetSetting(self.panel.guildID, self.name, value)
-        except ValueError as e:
-            await self.panel.Show(interaction, str(e))
-            return
-        current = Utils.FormatSetting(self.name, Utils.GetSettingValueFromGuild(self.panel.guildID, self.name))
-        await self.panel.Show(interaction, Say(Text.ADMIN_SETTINGS_RESET if value is None else Text.ADMIN_SETTINGS_SET, setting=self.definition.label, value=current))
+        await self.panel.Show(interaction, await ApplySetting(self.panel.guildID, self.name, self.field.value))
 
 class SettingsPanel(Views.Panel):
     def __init__(self, guildID: Utils.GuildID):
@@ -179,7 +164,7 @@ class SettingsPanel(Views.Panel):
     autoComplete={
         "name": Utils.AutocompleteSettings,
     },
-    permission="manage",
+    permission=Utils.Permission.MANAGE_SERVER,
 )
 async def Command_AdminSettings(
     interaction: discord.Interaction,

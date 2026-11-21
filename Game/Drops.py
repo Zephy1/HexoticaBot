@@ -309,7 +309,6 @@ async def HandleClaim(interaction: discord.Interaction):
             drop.state = DropState.OPEN
             ArmExpiry(drop)
         return await reply(Say(Text.CLAIM_FAILED, reason=reason))
-        return
 
     drop.state = DropState.CLAIMED
     drops.pop(interaction.message.id, None)

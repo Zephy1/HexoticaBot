@@ -16,7 +16,7 @@ from Game import Drops
         "minRarity": Say(Text.ADMIN_SPAWN_MIN_RARITY),
         "maxRarity": Say(Text.ADMIN_SPAWN_MAX_RARITY),
     },
-    permission="owner",
+    permission=Utils.Permission.OWNER,
 )
 async def Command_AdminSpawn(
     interaction: discord.Interaction,

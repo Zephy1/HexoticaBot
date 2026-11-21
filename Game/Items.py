@@ -1,5 +1,4 @@
 import discord
-import asyncio
 import random
 import json
 import time
@@ -186,25 +185,6 @@ def DyeText(recipe: str) -> str:
         added = DyeList([(count, name) for name, count in totals.items()])
     return f"{DyeEmote(base)} {added}" if added and mode == "pure_plus" else added
 
-def RarityMods(calc: dict) -> str:
-    return Say(Text.ROLL_MOD_SEPARATOR).join(
-        Say(Text.ROLL_MOD, sign="+" if value >= 0 else "-", value=round(abs(value) * 100, 2), label=key)
-        for key, value in calc.get("mods", {}).items()
-    )
-
-def CraftLine(craft: dict) -> str:
-    if not craft:
-        return ""
-    dyes = DyeText(craft["recipe"])
-    mods = RarityMods(craft["calc"])
-    return Say(
-        Text.ROLL_CRAFT,
-        method=capwords(craft["method"].replace("_", " ")),
-        source=Say(Text.ROLL_CRAFT_FROM, source=craft["from"]) if craft.get("from") else "",
-        dyes=Say(Text.ROLL_DETAIL, text=dyes) if dyes else "",
-        mods=Say(Text.ROLL_CRAFT_MODS, mods=mods) if mods else "",
-    )
-
 def CoinsLine(amount: int) -> LootLine:
     return LootLine("Coins", 1, amount, "Coins.png")
 
@@ -327,7 +307,7 @@ def ItemRow(
         "rarity": piece.rarity,
         "craft": piece.craft,
         "set": bundle.info,
-        "bundleID": bundle.bundleID,
+        "bundleID": piece.bundleID or bundle.bundleID,
         "bundleName": bundle.name,
         "claimedAt": int(time.time()),
     }
@@ -376,12 +356,8 @@ async def GetItemOwner(
 def VoidRecord(itemID: Utils.ItemID, item: dict) -> dict:
     return {
         "itemID": itemID,
-        "hex": item["hex"],
-        "armor": item["armor"],
+        "bundleID": item["bundleID"],
         "slot": item["slot"],
-        "name": item["name"],
-        "rarity": item["rarity"],
-        "craft": item["craft"],
     }
 
 def CleanSearch(current: str) -> str:
@@ -416,13 +392,6 @@ async def AutocompleteOwnItems(
 ) -> list[app_commands.Choice]:
     return await _AutocompleteUserItems(interaction, current)
 
-async def AutocompleteGuildItems(
-    interaction: discord.Interaction,
-    current: str,
-) -> list[app_commands.Choice]:
-    rows = await PersistentData.SearchPrefix("itemOwner", f"{interaction.guild_id}.", CleanSearch(current), 25)
-    return [app_commands.Choice(name=itemID[:100], value=itemID) for itemID, _ in rows]
-
 async def AutocompleteArmorTypes(
     interaction: discord.Interaction,
     current: str,
@@ -448,44 +417,3 @@ async def AutocompleteArmorSlots(
     armorType = GetArmorType(str(getattr(interaction.namespace, "armor_type", "")))
     current = current.lower()
     return [app_commands.Choice(name=slot.title(), value=slot.value) for slot in ArmorSlots(armorType) if current in slot.lower()]
-
-async def PieceSupply(
-    guildID: Utils.GuildID,
-    itemType: Utils.ItemType,
-    hexCode: Utils.HexCode,
-) -> dict:
-    armorText, _, slot = itemType.rpartition("_")
-    supply = {
-        "inList": 0,
-        "claimed": 0,
-        "available": 0,
-        "voided": 0,
-        "reserved": 0,
-        "owned": 0,
-        "sold": 0,
-    }
-    try:
-        armorType = Utils.ArmorType(armorText)
-    except ValueError:
-        return supply
-
-    counts = await asyncio.to_thread(Lists.index.PieceBundleCounts, hexCode, armorType, slot)
-    retired = Lists.RetiredSet(guildID)
-    reserved = Lists.ReservedSet(guildID)
-    for bundleID, copies in counts.items():
-        supply["inList"] += copies
-        if bundleID in retired:
-            supply["claimed"] += copies
-        elif bundleID in reserved:
-            supply["reserved"] += copies
-        else:
-            supply["available"] += copies
-    reservedVoid = Lists.reservedVoid.get(guildID, ())
-    for _, voidID, record in Lists.voidPools.get(guildID, []):
-        if record["armor"] == armorType and record["slot"] == slot and record["hex"] == hexCode:
-            supply["reserved" if voidID in reservedVoid else "voided"] += 1
-    ownedRows = await PersistentData.ReadPrefix("itemOwner", f"{guildID}.{itemType}_{hexCode}_")
-    supply["owned"] = len(ownedRows)
-    issued = PersistentAppData.GetData(CounterKey(guildID, itemType, hexCode), 1) - 1
-    supply["sold"] = max(0, issued - supply["owned"])
-    return supply

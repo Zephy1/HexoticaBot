@@ -1,5 +1,4 @@
 import asyncio
-import random
 import json
 import math
 
@@ -10,13 +9,15 @@ from Utils.Translation import Say, Text
 from Database import PersistentData
 from Game import TemporaryBuffs
 from Game import Upgrades
-from Utils import Logger
 from Utils import Utils
 
 MAX_REFILL_STEPS = 64
 
 def Scope(guildID: Utils.GuildID, userID: Utils.MemberID) -> Utils.UserScope:
     return f"{guildID}-{userID}"
+
+def ProfileUpdate(scope: Utils.UserScope, profile: dict) -> dict:
+    return {scope: {"profile": profile}}
 
 def DefaultProfile(guildID: Utils.GuildID) -> dict:
     return {
@@ -87,31 +88,6 @@ async def ReleaseRoll(guildID: Utils.GuildID, userID: Utils.MemberID, bonus: boo
         await PersistentData.WriteRows(rows)
         if profileRow is not None:
             userData["profile"] = profileRow
-
-async def CommitRoll(guildID: Utils.GuildID, userID: Utils.MemberID) -> bool:
-    scope = Scope(guildID, userID)
-    async with PersistentUserData.userLocks[scope]:
-        userData = await PersistentUserData.LoadLocked(scope)
-        held = await HeldRolls(scope)
-        if held < 1:
-            return True
-        rows = [("pendingRoll", scope, None if held == 1 else json.dumps(held - 1))]
-        profileRow = None
-        row = userData.get("profile")
-        if row is not None:
-            profile = json.loads(row)
-            if random.random() < Upgrades.FreeRollChance(profile, guildID):
-                profile["rolls"] += 1
-                profileRow = await asyncio.to_thread(json.dumps, profile)
-                rows.append(("userData", f"{scope}:profile", profileRow))
-        try:
-            await PersistentData.WriteRows(rows)
-        except Exception as e:
-            await Logger.LogHeadlessError(f"Failed to commit a /roll ({scope}): {e}")
-            return False
-        if profileRow is not None:
-            userData["profile"] = profileRow
-    return True
 
 async def RecoverPendingRolls() -> None:
     for scope, pending in (await PersistentData.LoadCollection("pendingRoll")).items():

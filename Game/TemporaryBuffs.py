@@ -62,13 +62,6 @@ def CheckBeaconKind(kind: str) -> None:
     if kind not in BEACON_KINDS:
         raise ValueError(Say(Text.BEACON_UNKNOWN, kind=kind))
 
-def ProfileUpdate(scope, profile: dict) -> dict:
-    return {
-        scope: {
-            "profile": profile,
-        }
-    }
-
 def LuckPotionMultiplier(
     profile: dict,
     guildID: Utils.GuildID,
@@ -92,7 +85,7 @@ async def BuyLuckPotion(
         profile["coins"] -= cost
         profile["luckClockUntil"] = max(profile.get("luckClockUntil", 0), Clock()) + LUCK_POTION_SECONDS
         expires = WallTime(profile["luckClockUntil"])
-        return ProfileUpdate(scope, profile), {}, (expires, cost)
+        return Profiles.ProfileUpdate(scope, profile), {}, (expires, cost)
 
     return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
 
@@ -124,10 +117,8 @@ async def FundBeacon(
     coins: Utils.Coins,
 ) -> tuple[Utils.Coins, float]:
     CheckBeaconKind(kind)
-    if not isinstance(coins, int) or isinstance(coins, bool):
-        raise ValueError(Say(Text.CONTRIBUTE_WHOLE))
-    if coins < 1:
-        raise ValueError(Say(Text.CONTRIBUTE_MIN))
+    Utils.CheckNumber(coins, Say(Text.FIELD_COINS), low=1, isInt=True)
+    coins = int(coins)
     scope = Profiles.Scope(guildID, userID)
     await Profiles.EnsureProfile(guildID, userID)
     cost = Utils.GetSettingValueFromGuild(guildID, BuffSetting.BEACON_COST)
@@ -158,7 +149,7 @@ async def FundBeacon(
             f"appData.beacon.{guildID}": beacons,
         }
         expires = WallTime(beacon.get("clockUntil", 0))
-        return ProfileUpdate(scope, profile), appUpdates, (beacon["pool"], expires)
+        return Profiles.ProfileUpdate(scope, profile), appUpdates, (beacon["pool"], expires)
 
     return await Atomic.AtomicUpdate(guildID, [scope], build)
 
@@ -167,8 +158,7 @@ async def AdminSetLuckPotion(
     userID: Utils.MemberID,
     seconds: float,
 ) -> float:
-    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
-        raise ValueError(Say(Text.POTION_SECONDS))
+    Utils.CheckNumber(seconds, Say(Text.FIELD_DURATION))
     scope = Profiles.Scope(guildID, userID)
     await Profiles.EnsureProfile(guildID, userID)
 
@@ -182,7 +172,7 @@ async def AdminSetLuckPotion(
         else:
             profile["luckClockUntil"] = 0
             expires = 0.0
-        return ProfileUpdate(scope, profile), {}, expires
+        return Profiles.ProfileUpdate(scope, profile), {}, expires
 
     return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
 

@@ -57,6 +57,10 @@ class GameSetting:
     maximum: float
     isInt: bool = False
 
+class Permission(StrEnum):
+    OWNER = "owner"
+    MANAGE_SERVER = "manage_guild"
+
 class Setting(StrEnum):
     SPECIAL_ALERT_THRESHOLD = "specialThreshold"
     RARE_ITEM_SKEW = "rareItemSkew"

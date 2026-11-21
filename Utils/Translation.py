@@ -38,7 +38,6 @@ class Text(StrEnum):
     BUNDLE_BONUS_SET = "Bonus: {name}"
     ROLL_LINE = "Roll: {line}"
     DOUBLE_ROLL_LINE = "Double roll: {line}"
-    DOUBLE_ROLL = "Double roll"
     TITLE_EXPIRED = "Expired: {title}"
     CLAIMED_BY = "-# Claimed by <@{userID}>"
     ROLLED_BY = "-# Rolled by <@{userID}>"
@@ -122,25 +121,16 @@ class Text(StrEnum):
     # Temporary buffs
     BEACON_UNKNOWN = "Unknown beacon type: {kind}."
     POTION_COST = "A luck potion costs {cost} coins, you have {coins}."
-    CONTRIBUTE_WHOLE = "Invalid coin number."
-    CONTRIBUTE_MIN = "You must contribute at least {min} coins."
     COINS_ONLY = "You only have {coins} coins."
-    POTION_SECONDS = "Invalid potion duration."
 
     # /roll
     ROLL_DESCRIPTION = "Spend 1 roll to generate a snipe."
     ROLL_NO_PERMISSION = "Failed to send messages in this channel."
     ROLL_HEADER = "## {star}{title} - Rarity {rarity}"
-    ROLL_CRAFT = "**{method}**{source}{dyes}{mods}"
-    ROLL_CRAFT_FROM = " from {source}"
-    ROLL_DETAIL = " - {text}"
-    ROLL_CRAFT_MODS = "\n{mods}"
     ROLL_DYE = "+{count} {dye}"
     ROLL_DYE_ADVANCED = "{dyes} (Advanced)"
     ROLL_DYE_ADVANCED_STEP = "#{number}: {dyes}"
     ROLL_DYE_ADVANCED_STEPS = "Advanced {steps}"
-    ROLL_MOD = "{sign}{value:g}% {label}"
-    ROLL_MOD_SEPARATOR = ", "
     ROLL_FOOTER = "-# {BOT_FOOTER} • {rolls}<t:{timestamp}:s>"
     ROLL_FOOTER_ROLLS = "{rolls} roll{s} left • "
 

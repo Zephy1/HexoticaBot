@@ -83,13 +83,6 @@ def CheckUpgrade(upgrade: str) -> None:
     if upgrade not in UPGRADES:
         raise ValueError(Say(Text.UPGRADE_UNKNOWN, upgrade=upgrade))
 
-def ProfileUpdate(scope, profile: dict) -> dict:
-    return {
-        scope: {
-            "profile": profile,
-        },
-    }
-
 def GetUpgrade(
     guildID: Utils.GuildID,
     key: str,
@@ -112,13 +105,7 @@ async def SetUpgradeOverride(
     if key not in UPGRADE_LIMITS or field not in UPGRADE_LIMITS[key]:
         raise ValueError(Say(Text.UPGRADE_UNKNOWN_FIELD, key=key, field=field))
     if value is not None:
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            raise ValueError(Say(Text.FIELD_NOT_NUMBER, field=field))
-        low, high = UPGRADE_LIMITS[key][field]
-        if not low <= value <= high:
-            raise ValueError(Say(Text.FIELD_RANGE, field=field, low=low, high=high))
-        if field in INT_UPGRADE_FIELDS and value != int(value):
-            raise ValueError(Say(Text.FIELD_NOT_INTEGER, field=field))
+        Utils.CheckNumber(value, field, *UPGRADE_LIMITS[key][field], isInt=field in INT_UPGRADE_FIELDS)
     config = PersistentAppData.GetData(f"guildConfig.{guildID}", {})
     overrides = config.setdefault("upgrades", {}).setdefault(key, {})
     if value is None:
@@ -214,6 +201,22 @@ def UpgradeSummary(
         rows.append((definition.label, Level(profile, key), definition.maxLevel, cost, effect))
     return rows
 
+async def ModifyUpgradeProfile(
+    guildID: Utils.GuildID,
+    userID: Utils.MemberID,
+    upgrade: str,
+    change,
+):
+    CheckUpgrade(upgrade)
+    scope = Profiles.Scope(guildID, userID)
+    await Profiles.EnsureProfile(guildID, userID)
+
+    def build():
+        profile = Profiles.ClaimProfile(guildID, userID)
+        return Profiles.ProfileUpdate(scope, profile), {}, change(profile, GetUpgrade(guildID, upgrade))
+
+    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
+
 async def AdminSetUpgradeLevel(
     guildID: Utils.GuildID,
     userID: Utils.MemberID,
@@ -226,30 +229,19 @@ async def AdminSetUpgradeLevel(
     definition = GetUpgrade(guildID, upgrade)
     if definition.maxLevel is not None and level > definition.maxLevel:
         raise ValueError(Say(Text.UPGRADE_CAPS, label=definition.label, maxLevel=definition.maxLevel))
-    scope = Profiles.Scope(guildID, userID)
-    await Profiles.EnsureProfile(guildID, userID)
 
-    def build():
-        profile = Profiles.CachedProfile(scope)
-        if profile is None:
-            raise ValueError(Say(Text.NO_PROFILE_USER))
+    def change(profile: dict, _: Upgrade) -> int:
         profile["upgrades"][upgrade] = level
-        return ProfileUpdate(scope, profile), {}, level
+        return level
 
-    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
+    return await ModifyUpgradeProfile(guildID, userID, upgrade, change)
 
 async def RefundUpgrade(
     guildID: Utils.GuildID,
     userID: Utils.MemberID,
     upgrade: str,
 ) -> tuple[int, Utils.Coins]:
-    CheckUpgrade(upgrade)
-    scope = Profiles.Scope(guildID, userID)
-    await Profiles.EnsureProfile(guildID, userID)
-
-    def build():
-        profile = Profiles.ClaimProfile(guildID, userID)
-        definition = GetUpgrade(guildID, upgrade)
+    def change(profile: dict, definition: Upgrade) -> tuple[int, Utils.Coins]:
         level = Level(profile, upgrade)
         if level < 1:
             raise ValueError(Say(Text.UPGRADE_NO_LEVELS, label=definition.label))
@@ -258,22 +250,16 @@ async def RefundUpgrade(
 
         profile["coins"] += refund
         profile["upgrades"][upgrade] = newLevel
-        return ProfileUpdate(scope, profile), {}, (newLevel, refund)
+        return newLevel, refund
 
-    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
+    return await ModifyUpgradeProfile(guildID, userID, upgrade, change)
 
 async def BuyUpgrade(
     guildID: Utils.GuildID,
     userID: Utils.MemberID,
     upgrade: str,
 ) -> tuple[int, Utils.Coins]:
-    CheckUpgrade(upgrade)
-    scope = Profiles.Scope(guildID, userID)
-    await Profiles.EnsureProfile(guildID, userID)
-
-    def build():
-        profile = Profiles.ClaimProfile(guildID, userID)
-        definition = GetUpgrade(guildID, upgrade)
+    def change(profile: dict, definition: Upgrade) -> tuple[int, Utils.Coins]:
         cost = UpgradeCost(profile, guildID, upgrade)
         if cost is None:
             raise ValueError(Say(Text.UPGRADE_MAXED, label=definition.label))
@@ -282,6 +268,6 @@ async def BuyUpgrade(
 
         profile["coins"] -= cost
         profile["upgrades"][upgrade] = Level(profile, upgrade) + 1
-        return ProfileUpdate(scope, profile), {}, (profile["upgrades"][upgrade], cost)
+        return profile["upgrades"][upgrade], cost
 
-    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
+    return await ModifyUpgradeProfile(guildID, userID, upgrade, change)

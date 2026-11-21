@@ -20,7 +20,7 @@ from Game import Items
     autoComplete={
         "itemID": Items.AutocompleteUserItems,
     },
-    permission="owner",
+    permission=Utils.Permission.OWNER,
 )
 async def Command_AdminDeleteItem(
     interaction: discord.Interaction,
@@ -28,7 +28,7 @@ async def Command_AdminDeleteItem(
     itemID: str,
 ):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    guildID, memberID = await Utils.RequireGuildAndMember(interaction.guild_id, user.id, interaction)
+    guildID, _ = await Utils.RequireGuildAndMember(interaction.guild_id, user.id, interaction)
 
     parsed = Items.ParseItemID(itemID)
     if parsed is None:

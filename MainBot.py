@@ -69,15 +69,15 @@ def OnTaskDone(task: asyncio.Task) -> None:
 def FindInteraction(args, kwargs) -> discord.Interaction | None:
     return kwargs.get("interaction") or next((a for a in args if isinstance(a, discord.Interaction)), None)
 
-def HasCommandPermission(interaction: discord.Interaction, **permissions: bool) -> bool:
+def HasCommandPermission(interaction: discord.Interaction, permission: Utils.Permission) -> bool:
     if interaction.user.id in Variables.ownerUsers:
         return True
-    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+    if permission is Utils.Permission.OWNER or interaction.guild is None or not isinstance(interaction.user, discord.Member):
         return False
-    return interaction.user.guild_permissions.is_superset(discord.Permissions(**permissions))
+    return getattr(interaction.user.guild_permissions, permission.value)
 
 def GuardCommand(
-    permission: str | None = None,
+    permission: Utils.Permission | None = None,
     requireSetup: bool = False,
     onError=None,
 ):
@@ -93,10 +93,7 @@ def GuardCommand(
                     return None
                 if await IsUserBlacklisted(interaction):
                     return None
-                requiredPermission = {
-                    permission: True,
-                }
-                if permission is not None and not HasCommandPermission(interaction, **requiredPermission):
+                if permission is not None and not HasCommandPermission(interaction, permission):
                     await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.NOT_ALLOWED), ephemeral=True)
                     return None
                 if requireSetup and await EnsureGuildReady(interaction) is None:
@@ -122,7 +119,7 @@ def AppCommandWithAliases(
     onError=None,
     guildOnly=False,
     requireSetup=None,
-    permission=None,
+    permission: Utils.Permission | None = None,
     **kwargs,
 ):
     if description:

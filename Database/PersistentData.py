@@ -90,17 +90,11 @@ def SearchPrefixBlocking(
     if text:
         query += " AND instr(lower(substr(key, ?)), ?) > 0"
         values += [len(prefix) + 1, text.lower()]
-    query += " ORDER BY key"
-    if not byRarity:
-        query += " LIMIT ?"
-        values.append(limit)
+    query += " ORDER BY json_extract(value, '$.rarity') DESC, key DESC LIMIT ?" if byRarity else " ORDER BY key LIMIT ?"
+    values.append(limit)
     with readDatabaseLock:
         rows = readDatabase.execute(query, values).fetchall()
-    found = [(key[len(prefix):], value) for key, value in rows]
-    if byRarity:
-        found.sort(key=lambda row: (json.loads(row[1])["rarity"], row[0]), reverse=True)
-        found = found[:limit]
-    return found
+    return [(key[len(prefix):], value) for key, value in rows]
 
 async def SearchPrefix(
     name: str,
