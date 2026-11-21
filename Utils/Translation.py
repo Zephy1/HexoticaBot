@@ -209,6 +209,14 @@ class Text(StrEnum):
     SELL_BUTTON_CANCEL = "Cancel"
     SELL_EXPIRED = "This sell panel expired."
 
+    # /collection
+    COLLECTION_DESCRIPTION = "View a user's entire collection."
+    COLLECTION_USER = "Whose collection to view. (defaults to you)"
+    COLLECTION_TITLE = "## <@{user}>'s collection"
+    COLLECTION_EMPTY = "This collection is empty."
+    COLLECTION_VALUE = "Worth **{coins} coins**"
+    COLLECTION_EXPIRED = "This collection panel expired."
+
     # /showcase
     SHOWCASE_GROUP_DESCRIPTION = "Show off your armor sets."
     SHOWCASE_VIEW_DESCRIPTION = "View a user's showcased sets."
