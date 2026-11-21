@@ -33,6 +33,15 @@ pillSize = 9
 swatchSide = 10
 goldColor = (255, 215, 64, 255)
 maxSideColumns = 5
+showcaseIcon = 40
+showcaseGap = showcaseIcon * RollCard.iconGap / RollCard.columnSide
+showcaseSetGap = 20
+showcaseColumnGap = 10
+showcaseTop = 26
+showcaseColumns = 8
+showcaseStar = 18
+previewIcon = 40
+previewGap = 6
 
 selectedFill = (30, 62, 45, 255)
 lockedFill = (33, 34, 38, 255)
@@ -78,6 +87,10 @@ def DrawCheck(draw: ImageDraw.ImageDraw, x: float, y: float, size: float = badge
     cx, cy = x + size / 2, y + size / 2
     draw.line([(S(cx - 4.5 * grow), S(cy)), (S(cx - 1 * grow), S(cy + 3.5 * grow)), (S(cx + 4.5 * grow), S(cy - 3.5 * grow))], fill=(20, 40, 28, 255), width=S(2 * grow), joint="curve")
 
+def DrawBadge(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, fill: tuple) -> None:
+    draw.ellipse((S(x), S(y), S(x + badgeSize), S(y + badgeSize)), fill=fill)
+    Centered(draw, x + badgeSize / 2, y, text, "Bold", 11 if len(text) < 2 else 9, white, badgeSize)
+
 def DrawPill(draw: ImageDraw.ImageDraw, right: float, y: float, text: str, fill: tuple) -> float:
     width = RollCard.Measure(text, "Bold", pillSize) + pillPad * 2
     left = right - width
@@ -85,7 +98,7 @@ def DrawPill(draw: ImageDraw.ImageDraw, right: float, y: float, text: str, fill:
     RollCard.DrawText(draw, left + pillPad, y, text, "Bold", pillSize, white, pillHeight)
     return left
 
-def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, item: Inventory.InventoryItem, selected: bool) -> None:
+def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, item: Inventory.InventoryItem, selected: bool, currentSlot: int | None = None) -> None:
     if selected:
         fill, outline, border = selectedFill, RollCard.positiveColor, 1.5
     elif item.locked:
@@ -102,9 +115,9 @@ def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float,
         right -= badgeSize + pillGap
     pillY = y + badgeInset + (badgeSize - pillHeight) / 2
     if item.locked:
-        right = DrawPill(draw, right, pillY, "IN TRADE", lockedPillFill) - pillGap
+        DrawPill(draw, right, pillY, "IN TRADE", lockedPillFill)
     if item.showcased:
-        DrawPill(draw, right, pillY, "SHOWCASE", showcaseFill)
+        DrawBadge(draw, x + badgeInset, y + badgeInset, "S" if currentSlot is None or currentSlot == item.showcaseSlot else str(item.showcaseSlot), showcaseFill)
 
     icon = Fade(Icon(item.slot, item.hexCode)) if item.locked else Icon(item.slot, item.hexCode)
     iconX = S(x + (tileWidth - iconSide) / 2) + (S(iconSide) - icon.width) // 2
@@ -131,7 +144,7 @@ def DrawTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float,
     value = str(Utils.CompactNumber(item.value))
     RollCard.DrawText(draw, x + tileWidth - 8 - RollCard.Measure(value, "Bold", detailSize + 1), bottomY, value, "Bold", detailSize + 1, goldColor, 16)
 
-def Draw(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], columns: int, minRows: int = 1) -> Image.Image:
+def Draw(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], columns: int, minRows: int = 1, currentSlot: int | None = None) -> Image.Image:
     rows = max(minRows, math.ceil(len(items) / columns))
     width = margin * 2 + columns * tileWidth + (columns - 1) * tileGap
     height = margin * 2 + rows * tileHeight + (rows - 1) * tileGap
@@ -141,15 +154,15 @@ def Draw(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], colu
         row, column = divmod(index, columns)
         x = margin + column * (tileWidth + tileGap)
         y = margin + row * (tileHeight + tileGap)
-        DrawTile(canvas, draw, x, y, item, item.itemID in selected)
+        DrawTile(canvas, draw, x, y, item, item.itemID in selected, currentSlot)
     if not items:
         grow = max(1, width / 256)
         draw.rounded_rectangle((S(margin), S(margin), S(width - margin), S(height - margin)), radius=S(tileRadius), outline=RollCard.dividerColor, width=S(1))
         Centered(draw, width / 2, height / 2 - 9 * grow, "Empty", "Bold", 14 * grow, RollCard.mutedColor, 18 * grow)
     return canvas
 
-def Render(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID]) -> bytes:
-    return RollCard.ToPNG(Draw(items, selected, Inventory.pageColumns))
+def Render(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], currentSlot: int | None = None) -> bytes:
+    return RollCard.ToPNG(Draw(items, selected, Inventory.pageColumns, currentSlot=currentSlot))
 
 class SideLabel(NamedTuple):
     title: str
@@ -203,3 +216,58 @@ def RenderSides(left: list[Inventory.InventoryItem], right: list[Inventory.Inven
             textX += RollCard.Measure(part, "Regular", size)
         pngs.append(RollCard.ToPNG(canvas))
     return pngs
+
+def SetImages(pieces: list[Inventory.InventoryItem], seated: bool = True) -> list[Image.Image | None]:
+    try:
+        rows = ArmorImages.SetSlots([SimpleNamespace(armor=Utils.ArmorType(piece.armor), slot=Utils.ArmorSlot(piece.slot), hex=piece.hexCode) for piece in pieces], showFixed=True, seated=seated)
+        images = {slot: image for slot, _, image in rows}
+        return [images.get(slot) for slot in ArmorImages.slotOrder]
+    except Exception:
+        owned = {Utils.ArmorSlot(piece.slot): piece for piece in pieces}
+        side = ArmorImages.ReferenceSize()
+        return [PlaceholderIcon(owned[slot].hexCode).resize((side, side), Image.LANCZOS) if slot in owned else None for slot in ArmorImages.slotOrder]
+
+def DrawShowcaseTile(canvas: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, cells: list[tuple[Image.Image | None, int]], width: float, earning: bool) -> None:
+    if earning:
+        RollCard.DrawStar(draw, x + (width - showcaseStar) / 2, y + showcaseStar / 2, showcaseStar, RollCard.starColor)
+    top = y + showcaseTop
+    for icon, height in cells:
+        if icon is not None:
+            canvas.alpha_composite(icon, (S(x + width / 2) - icon.width // 2, S(top) + max(0, height - icon.height) // 2))
+        top += height / RollCard.scale + showcaseGap
+
+def RenderPreview(pieces: list[Inventory.InventoryItem]) -> bytes:
+    images = SetImages(pieces, seated=False)
+    width = margin * 2 + len(images) * previewIcon + (len(images) - 1) * previewGap
+    canvas = Image.new("RGBA", (S(width), S(margin * 2 + previewIcon)), (0, 0, 0, 0))
+    for number, image in enumerate(images):
+        if image is None:
+            continue
+        icon = ArmorImages.Fit(image, S(previewIcon))
+        cellX, cellY = S(margin + number * (previewIcon + previewGap)), S(margin)
+        canvas.alpha_composite(icon, (cellX + (S(previewIcon) - icon.width) // 2, cellY + (S(previewIcon) - icon.height) // 2))
+    return RollCard.ToPNG(canvas)
+
+def RenderShowcase(sets: list[tuple[list[Inventory.InventoryItem], bool]]) -> bytes:
+    columns = []
+    for pieces, earning in sets:
+        cells = []
+        for slot, image in zip(ArmorImages.slotOrder, SetImages(pieces)):
+            icon = None if image is None else ArmorImages.Fit(image, S(showcaseIcon))
+            cells.append((icon, ArmorImages.CellHeight(slot, S(showcaseIcon))))
+        width = max(icon.width for icon, _ in cells if icon is not None) / RollCard.scale
+        height = sum(cell[1] for cell in cells) / RollCard.scale + showcaseGap * (len(cells) - 1)
+        columns.append((cells, width, height, earning))
+    rows = [columns[start:start + showcaseColumns] for start in range(0, len(columns), showcaseColumns)]
+    rowWidths = [sum(column[1] for column in row) + showcaseColumnGap * (len(row) - 1) for row in rows]
+    rowHeights = [showcaseTop + max(column[2] for column in row) for row in rows]
+    canvas = Image.new("RGBA", (S(margin * 2 + max(rowWidths)), S(margin * 2 + sum(rowHeights) + showcaseSetGap * (len(rows) - 1))), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    y = margin
+    for row, height in zip(rows, rowHeights):
+        x = margin
+        for cells, width, _, earning in row:
+            DrawShowcaseTile(canvas, draw, x, y, cells, width, earning)
+            x += width + showcaseColumnGap
+        y += height + showcaseSetGap
+    return RollCard.ToPNG(canvas)

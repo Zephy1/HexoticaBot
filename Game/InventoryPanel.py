@@ -21,8 +21,9 @@ async def Gallery(
     items: list[Inventory.InventoryItem],
     selected: set[Utils.ItemID],
     filename: str,
+    currentSlot: int | None = None,
 ) -> tuple[discord.File, discord.ui.MediaGallery]:
-    png = await asyncio.to_thread(InventoryCard.Render, items, selected)
+    png = await asyncio.to_thread(InventoryCard.Render, items, selected, currentSlot)
     return discord.File(io.BytesIO(png), filename=filename), discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{filename}", description=Alt(items)))
 
 async def SidesGallery(
@@ -45,13 +46,15 @@ def ParseNumber(text: str) -> float | None:
         raise ValueError(text)
     return value
 
-class RarityModal(discord.ui.Modal):
+class SearchModal(discord.ui.Modal):
     def __init__(self, panel: "InventoryPanel"):
-        super().__init__(title=Say(Text.INVENTORY_MODAL_TITLE))
+        super().__init__(title=Say(Text.INVENTORY_BUTTON_SEARCH))
         self.panel = panel
         filters = panel.filters
+        self.search = discord.ui.TextInput(default=filters.search, placeholder=Say(Text.INVENTORY_MODAL_SEARCH_HINT), required=False, max_length=100)
         self.low = discord.ui.TextInput(default="" if filters.minRarity is None else Items.FormatRarity(filters.minRarity), required=False, max_length=12)
         self.high = discord.ui.TextInput(default="" if filters.maxRarity is None else Items.FormatRarity(filters.maxRarity), required=False, max_length=12)
+        self.add_item(discord.ui.Label(text=Say(Text.INVENTORY_MODAL_SEARCH), component=self.search))
         self.add_item(discord.ui.Label(text=Say(Text.INVENTORY_MODAL_MIN), description=Say(Text.INVENTORY_MODAL_HINT), component=self.low))
         self.add_item(discord.ui.Label(text=Say(Text.INVENTORY_MODAL_MAX), description=Say(Text.INVENTORY_MODAL_HINT), component=self.high))
 
@@ -66,6 +69,7 @@ class RarityModal(discord.ui.Modal):
         if low is not None and high is not None and low > high:
             low, high = high, low
         self.panel.filters.minRarity, self.panel.filters.maxRarity = low, high
+        self.panel.filters.SetSearch(self.search.value)
         self.panel.page = 0
         await self.panel.Show(interaction)
 
@@ -73,6 +77,8 @@ class InventoryPanel(Views.Panel):
     allowEmpty = False
     emptyText = Text.INVENTORY_EMPTY
     maxSelected: int | None = None
+    readOnly = False
+    bulkSelect = True
 
     def __init__(
         self,
@@ -80,9 +86,11 @@ class InventoryPanel(Views.Panel):
         userID: Utils.MemberID,
         expiredText: Text,
         filters: Inventory.InventoryFilter | None = None,
+        inventoryID: Utils.MemberID | None = None,
     ):
         super().__init__(userID, expiredText)
         self.guildID = guildID
+        self.inventoryID = userID if inventoryID is None else inventoryID
         self.filters = Inventory.InventoryFilter() if filters is None else filters
         self.sort = Inventory.SortMode.RARITY_DESC
         self.page = 0
@@ -95,19 +103,35 @@ class InventoryPanel(Views.Panel):
         self.visible: list[Inventory.InventoryItem] = []
 
     async def Load(self) -> None:
-        profile = Profiles.CachedProfile(Profiles.Scope(self.guildID, self.ownerID))
+        profile = Profiles.CachedProfile(Profiles.Scope(self.guildID, self.inventoryID))
         if profile is None:
-            profile = await Profiles.EnsureProfile(self.guildID, self.ownerID)
-        self.items = await Inventory.LoadItems(self.guildID, self.ownerID, profile, self.Pending())
+            profile = await Profiles.EnsureProfile(self.guildID, self.inventoryID)
+        self.items = await Inventory.LoadItems(self.guildID, self.inventoryID, profile, self.Pending())
         self.byID = {item.itemID: item for item in self.items}
         self.selected = {itemID for itemID in self.selected if itemID in self.byID and not self.byID[itemID].locked}
+        self.Conform()
         if self.maxSelected is not None and len(self.selected) > self.maxSelected:
             keep = sorted(self.selected, key=lambda itemID: Inventory.SortKey(self.sort, self.byID[itemID]))
             self.selected = set(keep[:self.maxSelected])
             self.status = Say(Text.INVENTORY_LIMIT, limit=self.maxSelected)
-        self.visible = Inventory.Arrange(self.items, self.filters, self.sort)
+        self.visible = self.Visible()
         self.pages = max(1, math.ceil(len(self.visible) / Inventory.pageSize))
         self.page = min(self.page, self.pages - 1)
+
+    def Conform(self) -> None:
+        pass
+
+    def Visible(self) -> list[Inventory.InventoryItem]:
+        return Inventory.Arrange(self.items, self.filters, self.sort)
+
+    def HeaderRows(self) -> list[discord.ui.ActionRow]:
+        return []
+
+    async def Preview(self) -> tuple[discord.File, discord.ui.MediaGallery] | None:
+        return None
+
+    def CurrentSlot(self) -> int | None:
+        return None
 
     def Pending(self) -> set[Utils.ItemID] | None:
         return None
@@ -144,7 +168,9 @@ class InventoryPanel(Views.Panel):
             lines.append(Say(self.emptyText))
         elif not self.visible:
             lines.append(Say(Text.INVENTORY_NO_MATCHES))
-        lines.append(self.SelectionLine([self.byID[itemID] for itemID in self.selected]))
+        selection = self.SelectionLine([self.byID[itemID] for itemID in self.selected])
+        if selection:
+            lines.append(selection)
         return "\n".join(lines)
 
     def SelectionLine(self, chosen: list[Inventory.InventoryItem]) -> str:
@@ -158,7 +184,7 @@ class InventoryPanel(Views.Panel):
     def CommonButtons(self, selectedCount: int) -> list[discord.ui.Button]:
         return [
             Views.Button(Say(Text.INVENTORY_BUTTON_CLEAR), self.OnClear, disabled=not selectedCount),
-            Views.Button(Say(Text.INVENTORY_BUTTON_RARITY), self.OnRarity),
+            Views.Button(Say(Text.INVENTORY_BUTTON_SEARCH), self.OnSearch),
             Views.Button(Say(Text.INVENTORY_BUTTON_RESET), self.OnReset, disabled=not self.filters.active),
         ]
 
@@ -208,16 +234,21 @@ class InventoryPanel(Views.Panel):
         ]
         return Views.Dropdown(Say(Text.INVENTORY_PLACEHOLDER_ARMOR), options, functools.partial(self.OnFilter, "armor"))
 
-    def Build(self, pageItems: list[Inventory.InventoryItem], gallery: discord.ui.MediaGallery | None) -> None:
+    def Build(self, pageItems: list[Inventory.InventoryItem], gallery: discord.ui.MediaGallery | None, preview: discord.ui.MediaGallery | None = None) -> None:
         self.clear_items()
         selectedCount = len(self.selected)
         parts: list = [discord.ui.TextDisplay(self.Header())]
         if gallery is not None:
             parts.append(gallery)
-        parts.append(discord.ui.TextDisplay(self.Summary()))
+        summary = self.Summary()
+        if summary:
+            parts.append(discord.ui.TextDisplay(summary))
+        if preview is not None:
+            parts.append(preview)
         parts.append(discord.ui.Separator())
 
-        itemSelect = self.ItemSelect(pageItems)
+        parts.extend(self.HeaderRows())
+        itemSelect = None if self.readOnly else self.ItemSelect(pageItems)
         if itemSelect is not None:
             parts.append(discord.ui.ActionRow(itemSelect))
         parts.append(discord.ui.ActionRow(self.SortSelect()))
@@ -225,13 +256,17 @@ class InventoryPanel(Views.Panel):
         parts.append(discord.ui.ActionRow(self.ArmorSelect()))
 
         selectableTotal = len(self.Selectable(self.visible))
-        parts.append(discord.ui.ActionRow(
+        pager = [
             Views.Button(Say(Text.INVENTORY_BUTTON_PREV), functools.partial(self.OnPage, -1), disabled=self.page <= 0),
             Views.Button(Say(Text.INVENTORY_BUTTON_PAGE, page=self.page + 1, pages=self.pages), disabled=True),
             Views.Button(Say(Text.INVENTORY_BUTTON_NEXT), functools.partial(self.OnPage, 1), disabled=self.page >= self.pages - 1),
-            Views.Button(Say(Text.INVENTORY_BUTTON_SELECT_PAGE), self.OnSelectPage, disabled=not self.Selectable(pageItems)),
-            Views.Button(Say(Text.INVENTORY_BUTTON_SELECT_ALL, count=selectableTotal), self.OnSelectAll, disabled=not selectableTotal),
-        ))
+        ]
+        if not self.readOnly and self.bulkSelect:
+            pager += [
+                Views.Button(Say(Text.INVENTORY_BUTTON_SELECT_PAGE), self.OnSelectPage, disabled=not self.Selectable(pageItems)),
+                Views.Button(Say(Text.INVENTORY_BUTTON_SELECT_ALL, count=selectableTotal), self.OnSelectAll, disabled=not selectableTotal),
+            ]
+        parts.append(discord.ui.ActionRow(*pager))
 
         buttons, color = self.ActionButtons(selectedCount)
         parts.append(discord.ui.ActionRow(*buttons))
@@ -243,9 +278,12 @@ class InventoryPanel(Views.Panel):
         gallery = None
         if pageItems:
             self.renders += 1
-            file, gallery = await Gallery(pageItems, self.selected, f"inventory{self.renders}.png")
+            file, gallery = await Gallery(pageItems, self.selected, f"inventory{self.renders}.png", self.CurrentSlot())
             files.append(file)
-        self.Build(pageItems, gallery)
+        preview = await self.Preview()
+        if preview is not None:
+            files.append(preview[0])
+        self.Build(pageItems, gallery, None if preview is None else preview[1])
         return files
 
     async def Show(self, interaction: discord.Interaction, status: str = "") -> None:
@@ -323,5 +361,5 @@ class InventoryPanel(Views.Panel):
         self.page = 0
         await self.Show(interaction)
 
-    async def OnRarity(self, interaction: discord.Interaction):
-        await Views.OpenModal(interaction, RarityModal(self))
+    async def OnSearch(self, interaction: discord.Interaction):
+        await Views.OpenModal(interaction, SearchModal(self))

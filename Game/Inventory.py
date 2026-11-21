@@ -1,5 +1,6 @@
 import colorsys
 import json
+import re
 
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from enum import StrEnum
 
 from Database import PersistentUserData
 from Utils.Translation import Say, Text
+from Game import ColorSearch
 from Game import Upgrades
 from Game import Profiles
 from Game import Trading
@@ -22,6 +24,17 @@ maxArmorOptions = 24
 greyscaleSaturation = 0.12
 
 slotOrder = {slot.value: number for number, slot in enumerate(Utils.ArmorSlot)}
+
+slotAliases = {
+    alias: slot.value
+    for slot, aliases in (
+        (Utils.ArmorSlot.HELMET, ("helmet", "helm")),
+        (Utils.ArmorSlot.CHESTPLATE, ("chestplate", "chest", "cp")),
+        (Utils.ArmorSlot.LEGGINGS, ("leggings", "legging", "legs", "leg", "pants", "pant")),
+        (Utils.ArmorSlot.BOOTS, ("boots", "boot", "shoes", "shoe")),
+    )
+    for alias in aliases
+}
 
 class SortMode(StrEnum):
     RARITY_DESC = "rarityDesc"
@@ -52,9 +65,13 @@ class InventoryItem:
     rarity: float
     claimedAt: int
     value: Utils.Coins
-    showcased: bool
+    showcaseSlot: int | None
     locked: bool
     special: bool
+
+    @property
+    def showcased(self) -> bool:
+        return self.showcaseSlot is not None
 
 @dataclass(slots=True)
 class InventoryFilter:
@@ -62,10 +79,16 @@ class InventoryFilter:
     armor: str | None = None
     minRarity: float | None = None
     maxRarity: float | None = None
+    search: str = ""
+    query: ColorSearch.Query | None = None
 
     @property
     def active(self) -> bool:
-        return any(value is not None for value in (self.slot, self.armor, self.minRarity, self.maxRarity))
+        return bool(self.search) or any(value is not None for value in (self.slot, self.armor, self.minRarity, self.maxRarity))
+
+    def SetSearch(self, text: str) -> None:
+        self.search = text.strip()
+        self.query = ColorSearch.Parse(self.search)
 
     def Matches(self, item: InventoryItem) -> bool:
         return (
@@ -73,10 +96,12 @@ class InventoryFilter:
             and (self.armor is None or item.armor == self.armor)
             and (self.minRarity is None or item.rarity >= self.minRarity)
             and (self.maxRarity is None or item.rarity <= self.maxRarity)
+            and (self.query is None or SearchMatches(self.query, item))
         )
 
     def Clear(self) -> None:
-        self.slot = self.armor = self.minRarity = self.maxRarity = None
+        self.slot = self.armor = self.minRarity = self.maxRarity = self.query = None
+        self.search = ""
 
     def Describe(self) -> list[str]:
         parts = []
@@ -91,7 +116,15 @@ class InventoryFilter:
             parts.append(Say(Text.INVENTORY_FILTER_RARITY_MIN, low=Items.FormatRarity(low)))
         elif high is not None:
             parts.append(Say(Text.INVENTORY_FILTER_RARITY_MAX, high=Items.FormatRarity(high)))
+        if self.search:
+            parts.append(Say(Text.INVENTORY_FILTER_SEARCH, text=self.search))
         return parts
+
+def SearchMatches(query: ColorSearch.Query, item: InventoryItem) -> bool:
+    if query.colors and ColorSearch.Nearest(query, item.hexCode) > ColorSearch.colorThreshold:
+        return False
+    text = re.sub(r"[\s_]+", "", f"{item.armor}{item.name}{SlotLabel(item.slot)}".lower())
+    return all(word in text or item.slot in (ParseSlot(word), slotAliases.get(word)) for word in query.words)
 
 def ArmorLabel(armor: str) -> str:
     return capwords(armor.replace("_", " "))
@@ -117,7 +150,7 @@ async def LoadItems(
     scope = Profiles.Scope(guildID, userID)
     rows = await PersistentUserData.Read(scope)
     multiplier = Upgrades.SellMultiplier(profile, guildID)
-    showcased = {itemID for itemIDs in profile["showcase"].values() for itemID in itemIDs}
+    showcaseSlots = {itemID: int(slot) for slot, itemIDs in profile["showcase"].items() for itemID in itemIDs}
     if pending is None:
         pending = Trading.PendingItems(guildID)
     threshold = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.SPECIAL_ALERT_THRESHOLD)
@@ -138,7 +171,7 @@ async def LoadItems(
             rarity=rarity,
             claimedAt=data["claimedAt"],
             value=Drops.SellValue(guildID, rarity, multiplier),
-            showcased=itemID in showcased,
+            showcaseSlot=showcaseSlots.get(itemID),
             locked=itemID in pending,
             special=rarity >= threshold,
         ))
@@ -169,7 +202,11 @@ def SortKey(mode: SortMode, item: InventoryItem) -> tuple:
     return (item.itemID,)
 
 def Arrange(items: list[InventoryItem], filters: InventoryFilter, mode: SortMode) -> list[InventoryItem]:
-    return sorted((item for item in items if filters.Matches(item)), key=lambda item: SortKey(mode, item))
+    matched = [item for item in items if filters.Matches(item)]
+    query = filters.query
+    if query is not None and query.colors:
+        return sorted(matched, key=lambda item: (ColorSearch.Nearest(query, item.hexCode), SortKey(mode, item)))
+    return sorted(matched, key=lambda item: SortKey(mode, item))
 
 def ArmorCounts(items: list[InventoryItem]) -> list[tuple[str, int]]:
     counts: dict[str, int] = {}

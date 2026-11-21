@@ -167,6 +167,46 @@ def Unshowcase(profile: dict, itemIDs: Iterable[Utils.ItemID]) -> None:
             del showcase[slot]
     profile["earning"] = [slot for slot in profile["earning"] if str(slot) in showcase]
 
+def SetShowcase(
+    profile: dict,
+    guildID: Utils.GuildID,
+    userID: Utils.MemberID,
+    layout: dict[Utils.SlotIndex, list[Utils.ItemID]],
+    earning: list[Utils.SlotIndex],
+) -> None:
+    slotCount = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.STARTING_SHOWCASE_SLOTS)
+    rows = PersistentUserData.persistentUserData.get(Scope(guildID, userID), {})
+    showcase: dict[str, list[Utils.ItemID]] = {}
+    used: set[Utils.ItemID] = set()
+    for slot, itemIDs in sorted(layout.items()):
+        if not itemIDs:
+            continue
+        if not 1 <= slot <= slotCount:
+            raise ValueError(Say(Text.SHOWCASE_SLOT_RANGE, max=slotCount))
+        if used.intersection(itemIDs) or len(set(itemIDs)) < len(itemIDs) or any(f"item.{itemID}" not in rows for itemID in itemIDs):
+            raise ValueError(Say(Text.SHOWCASE_PIECES_GONE))
+        pieces = [json.loads(rows[f"item.{itemID}"]) for itemID in itemIDs]
+        armors = {str(piece["armor"]) for piece in pieces}
+        if len(armors) > 1 and not armors <= Utils.THREE_PIECE:
+            raise ValueError(Say(Text.SHOWCASE_MIXED_ARMOR))
+        if len({str(piece["slot"]) for piece in pieces}) < len(pieces):
+            raise ValueError(Say(Text.SHOWCASE_DUPLICATE_PIECE))
+        used.update(itemIDs)
+        showcase[str(slot)] = list(itemIDs)
+    profile["showcase"] = showcase
+    SetEarningSlots(profile, guildID, [slot for slot in earning if str(slot) in showcase])
+
+async def EditShowcase(guildID: Utils.GuildID, userID: Utils.MemberID, edit) -> None:
+    scope = Scope(guildID, userID)
+
+    def modify(current: dict | None) -> dict:
+        profile = current if current is not None else DefaultProfile(guildID)
+        ApplyRefill(profile, guildID, scope)
+        edit(profile)
+        return profile
+
+    await PersistentUserData.ModifyUserData(scope, "profile", modify)
+
 def ApplyRefill(
     profile: dict,
     guildID: Utils.GuildID,
