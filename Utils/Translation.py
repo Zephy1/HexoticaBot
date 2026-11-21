@@ -208,6 +208,8 @@ class Text(StrEnum):
     ADMIN_GIVE_COINS_DESCRIPTION = "Give coins to a specific user. (Bot owner)"
     ADMIN_GIVE_COINS_AMOUNT = "The amount of coins to give."
     ADMIN_GIVE_COINS_GAVE = "Successfully gave {amount} coins to <@{userID}>, they now have {total}."
+    ADMIN_ARMOR_TEST_DESCRIPTION = "Render every unique armor format side by side as a showcase. (Bot owner)"
+    ADMIN_ARMOR_TEST_DONE = "Rendered {count} armor format{s}, left to right then top to bottom:\n{names}"
     ADMIN_SET_ROLLS_DESCRIPTION = "Set a user's bonus rolls. They never expire and are only spent by /roll. (Bot owner)"
     ADMIN_SET_ROLLS_AMOUNT = "The number of bonus rolls to set."
     ADMIN_SET_ROLLS_SET = "<@{userID}> now has {amount} bonus roll{s}."
