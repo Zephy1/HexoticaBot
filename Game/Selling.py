@@ -65,7 +65,7 @@ async def SellItems(
         if not sold:
             return {}, {}, SellResult([], skipped, 0)
 
-        profile["coins"] += coins
+        Profiles.Earn(profile, "sales", coins)
         Profiles.Unshowcase(profile, sold)
         userRows["profile"] = profile
         return {scope: userRows}, appUpdates, SellResult(sold, skipped, coins)

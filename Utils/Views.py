@@ -17,14 +17,17 @@ async def Retry(call):
                 raise
             await asyncio.sleep(1 + attempt)
 
-def ButtonCallback(func):
+def ButtonCallback(func=None, *, thinking=False):
+    if func is None:
+        return functools.partial(ButtonCallback, thinking=thinking)
+
     @functools.wraps(func)
     async def guarded(*args, **kwargs):
         interaction = MainBot.FindInteraction(args, kwargs)
         try:
             if interaction is None or await MainBot.IsUserBlacklisted(interaction, logUsage=False):
                 return None
-            await interaction.response.defer()
+            await interaction.response.defer(thinking=thinking, ephemeral=thinking)
             return await func(*args, **kwargs)
         except Utils.CommandAbort:
             return None

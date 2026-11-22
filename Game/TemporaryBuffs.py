@@ -82,7 +82,7 @@ async def BuyLuckPotion(
         profile = Profiles.ClaimProfile(guildID, userID)
         if profile["coins"] < cost:
             raise ValueError(Say(Text.POTION_COST, cost=Utils.CompactNumber(cost), coins=Utils.CompactNumber(profile['coins'])))
-        profile["coins"] -= cost
+        Profiles.Spend(profile, "potions", cost)
         profile["luckClockUntil"] = max(profile.get("luckClockUntil", 0), Clock()) + LUCK_POTION_SECONDS
         expires = WallTime(profile["luckClockUntil"])
         return Profiles.ProfileUpdate(scope, profile), {}, (expires, cost)
@@ -131,7 +131,7 @@ async def FundBeacon(
         beacon = beacons.setdefault(kind, {
             "pool": 0,
         })
-        profile["coins"] -= coins
+        Profiles.Spend(profile, "beacons", coins)
         pending = beacon.setdefault("pending", [])
         pending.append([str(userID), coins])
         runs, beacon["pool"] = divmod(beacon["pool"] + coins, cost)
@@ -210,7 +210,7 @@ async def AdminClearBeaconPool(
             profile = Profiles.CachedProfile(scope)
             if profile is None:
                 raise RuntimeError(f"The profile of {scope} is not loaded, the beacon pool was not cleared.")
-            profile["coins"] += share
+            Profiles.Refund(profile, "beacons", share)
             userUpdates[scope] = {
                 "profile": profile,
             }

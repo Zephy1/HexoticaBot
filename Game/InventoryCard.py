@@ -161,8 +161,8 @@ def Draw(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], colu
         Centered(draw, width / 2, height / 2 - 9 * grow, "Empty", "Bold", 14 * grow, RollCard.mutedColor, 18 * grow)
     return canvas
 
-def Render(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], currentSlot: int | None = None) -> bytes:
-    return RollCard.ToPNG(Draw(items, selected, Inventory.pageColumns, currentSlot=currentSlot))
+def Render(items: list[Inventory.InventoryItem], selected: set[Utils.ItemID], currentSlot: int | None = None, columns: int = Inventory.pageColumns) -> bytes:
+    return RollCard.ToPNG(Draw(items, selected, columns, currentSlot=currentSlot))
 
 class SideLabel(NamedTuple):
     title: str

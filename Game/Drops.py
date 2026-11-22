@@ -223,7 +223,7 @@ def ClaimBuild(drops: list[Drop], userID: Utils.MemberID):
             hasBonus = random.random() < Upgrades.BonusCoinsChance(profile, guildID)
             drop.bonusCoins = SellValue(guildID, drop.bundle.rarity, setting=Utils.Setting.BONUS_COIN_RATE) if hasBonus else 0
             drop.bonusLoot = Items.RollLoot(drop.bonusCoins)
-            profile["coins"] += drop.bonusCoins
+            Profiles.Earn(profile, "bonus", drop.bonusCoins)
 
         userItems, appUpdates, itemIDs = Items.AddItems(guildID, userID, sources)
         userUpdates = {scope: {"profile": profile, **userItems}}

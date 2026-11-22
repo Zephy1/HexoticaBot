@@ -238,29 +238,7 @@ async def Command_ShowcaseView(interaction: discord.Interaction, user: discord.M
     await interaction.response.defer(thinking=True)
     guildID = await Utils.RequireGuild(interaction.guild_id, interaction)
 
-    targetID = interaction.user.id if user is None else user.id
-    profile = await Profiles.PeekProfile(guildID, targetID)
-    if profile is None:
-        await Utils.AbortCommand(interaction, Say(Text.NO_PROFILE_USER))
-
-    items = {item.itemID: item for item in await Inventory.LoadItems(guildID, targetID, profile, set())}
-    earning = set(Profiles.ActiveSlots(profile, guildID))
-    sets = []
-    for slot, itemIDs in sorted(profile["showcase"].items(), key=lambda entry: int(entry[0])):
-        pieces = [items[itemID] for itemID in itemIDs if itemID in items]
-        if pieces:
-            sets.append((pieces, int(slot) in earning))
-    if not sets:
-        await Utils.AbortCommand(interaction, Say(Text.SHOWCASE_EMPTY_SELF if targetID == interaction.user.id else Text.SHOWCASE_EMPTY))
-
-    png = await asyncio.to_thread(InventoryCard.RenderShowcase, sets)
-    alt = InventoryPanel.Alt([piece for pieces, _ in sets for piece in pieces])
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.SHOWCASE_TITLE, user=targetID),
-        discordFile=discord.File(io.BytesIO(png), filename="showcase.png", description=alt),
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
+    await InventoryPanel.SendShowcase(interaction, guildID, interaction.user.id if user is None else user.id)
 
 @MainBot.AppCommandWithAliases(
     showcaseGroup,

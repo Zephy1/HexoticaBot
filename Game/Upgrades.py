@@ -248,7 +248,7 @@ async def RefundUpgrade(
         newLevel = level - 1
         refund = definition.Cost(newLevel)
 
-        profile["coins"] += refund
+        Profiles.Refund(profile, "upgrades", refund)
         profile["upgrades"][upgrade] = newLevel
         return newLevel, refund
 
@@ -266,7 +266,7 @@ async def BuyUpgrade(
         if profile["coins"] < cost:
             raise ValueError(Say(Text.UPGRADE_COST, label=definition.label, cost=Utils.CompactNumber(cost), coins=Utils.CompactNumber(profile['coins'])))
 
-        profile["coins"] -= cost
+        Profiles.Spend(profile, "upgrades", cost)
         profile["upgrades"][upgrade] = Level(profile, upgrade) + 1
         return profile["upgrades"][upgrade], cost
 

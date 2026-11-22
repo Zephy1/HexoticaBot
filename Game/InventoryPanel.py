@@ -37,6 +37,26 @@ async def SidesGallery(
     files = [discord.File(io.BytesIO(png), filename=filename) for png, filename in zip(pngs, filenames)]
     return files, discord.ui.MediaGallery(*(discord.MediaGalleryItem(f"attachment://{filename}", description=f"{label.title} {Alt(items)}".strip()[:1024]) for filename, items, label in zip(filenames, (left, right), labels)))
 
+async def SendShowcase(interaction: discord.Interaction, guildID: Utils.GuildID, targetID: Utils.MemberID, ephemeral: bool = False) -> None:
+    profile = await Profiles.PeekProfile(guildID, targetID)
+    if profile is None:
+        await Utils.AbortCommand(interaction, Say(Text.NO_PROFILE_USER))
+
+    items = await Inventory.LoadItems(guildID, targetID, profile, set())
+    sets = Inventory.ShowcaseSets(items, profile, guildID)
+    if not sets:
+        await Utils.AbortCommand(interaction, Say(Text.SHOWCASE_EMPTY_SELF if targetID == interaction.user.id else Text.SHOWCASE_EMPTY))
+
+    png = await asyncio.to_thread(InventoryCard.RenderShowcase, sets)
+    alt = Alt([piece for pieces, _ in sets for piece in pieces])
+    await Logger.SendInteractionMessage(
+        interaction=interaction,
+        message=Say(Text.SHOWCASE_TITLE, user=targetID),
+        discordFile=discord.File(io.BytesIO(png), filename="showcase.png", description=alt),
+        ephemeral=ephemeral,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
 def ParseNumber(text: str) -> float | None:
     text = text.replace(",", "").replace(" ", "")
     if not text:

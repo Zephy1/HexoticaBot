@@ -49,6 +49,14 @@ async def AddRolls(
     rows.append(("userData", f"{scope}:profile", row))
     return row
 
+def Earn(profile: dict, source: str, coins: Utils.Coins) -> None:
+    profile["coins"] += coins
+
+def Spend(profile: dict, sink: str, coins: Utils.Coins) -> None:
+
+def Refund(profile: dict, sink: str, coins: Utils.Coins) -> None:
+    profile["coins"] += coins
+
 def TotalRolls(profile: dict) -> int:
     return profile["rolls"] + profile.get("bonusRolls", 0)
 
@@ -220,7 +228,7 @@ def ApplyRefill(
     if scope is not None:
         if scope not in PersistentUserData.persistentUserData:
             raise RuntimeError(f"ApplyRefill called before the user data of {scope} was loaded.")
-        profile["coins"] += hours * ShowcaseIncome(profile, guildID, scope)
+        Earn(profile, "income", hours * ShowcaseIncome(profile, guildID, scope))
     base = EffectiveBaseRolls(profile, guildID)
     ceiling = RollCeiling(profile, guildID, base)
     carryover = Upgrades.CarryoverFraction(profile, guildID)

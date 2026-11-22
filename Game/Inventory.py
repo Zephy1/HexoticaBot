@@ -225,3 +225,13 @@ async def LoadSelected(
     profile = Profiles.CachedProfile(Profiles.Scope(guildID, userID))
     items = await LoadItems(guildID, userID, profile, set())
     return Arrange([item for item in items if item.itemID in wanted], InventoryFilter(), SortMode.RARITY_DESC)
+
+def ShowcaseSets(items: list[InventoryItem], profile: dict, guildID: Utils.GuildID) -> list[tuple[list[InventoryItem], bool]]:
+    byID = {item.itemID: item for item in items}
+    earning = set(Profiles.ActiveSlots(profile, guildID))
+    sets = []
+    for slot, itemIDs in sorted(profile["showcase"].items(), key=lambda entry: int(entry[0])):
+        pieces = [byID[itemID] for itemID in itemIDs if itemID in byID]
+        if pieces:
+            sets.append((pieces, int(slot) in earning))
+    return sets
