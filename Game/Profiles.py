@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import time
 
 from collections.abc import Iterable
 
@@ -24,6 +25,7 @@ def DefaultProfile(guildID: Utils.GuildID) -> dict:
         "rolls": Utils.GetSettingValueFromGuild(guildID, Utils.Setting.BASE_ROLLS_PER_HOUR),
         "lastRefillHour": Utils.CurrentHour(),
         "coins": 0,
+        "since": int(time.time()),
         "upgrades": dict.fromkeys(Upgrades.UPGRADES, 0),
         "showcase": {},
         "earning": [],
@@ -49,13 +51,55 @@ async def AddRolls(
     rows.append(("userData", f"{scope}:profile", row))
     return row
 
+def PeriodIDs() -> dict[str, int]:
+    days = Utils.CurrentHour() // 24
+    now = time.gmtime()
+    return {"day": days, "week": (days + 3) // 7, "month": now.tm_year * 12 + now.tm_mon}
+
+def StatBuckets(profile: dict) -> list[dict]:
+    buckets = [profile.setdefault("stats", {})]
+    periods = profile.setdefault("periods", {})
+    for name, periodID in PeriodIDs().items():
+        if periods.get(name, {}).get("id") != periodID:
+            periods[name] = {"id": periodID, "stats": {}}
+        buckets.append(periods[name]["stats"])
+    return buckets
+
+def PeriodStats(profile: dict, period: str) -> dict:
+    if period == "all":
+        return profile.get("stats", {})
+    bucket = profile.get("periods", {}).get(period)
+    return bucket["stats"] if bucket and bucket["id"] == PeriodIDs()[period] else {}
+
+def AddStat(profile: dict, key: str, amount: float = 1) -> None:
+    if amount:
+        for stats in StatBuckets(profile):
+            stats[key] = max(0, stats.get(key, 0) + amount)
+
+def MaxStat(profile: dict, key: str, value: float) -> None:
+    for stats in StatBuckets(profile):
+        stats[key] = max(stats.get(key, 0), value)
+
+def MinStat(profile: dict, key: str, value: float) -> None:
+    for stats in StatBuckets(profile):
+        stats[key] = min(stats.get(key, value), value)
+
 def Earn(profile: dict, source: str, coins: Utils.Coins) -> None:
     profile["coins"] += coins
+    AddStat(profile, "coins.gained", coins)
+    AddStat(profile, f"coins.from.{source}", coins)
+    MaxStat(profile, "coins.peak", profile["coins"])
 
 def Spend(profile: dict, sink: str, coins: Utils.Coins) -> None:
+    profile["coins"] -= coins
+    AddStat(profile, "coins.spent", coins)
+    AddStat(profile, f"coins.on.{sink}", coins)
 
 def Refund(profile: dict, sink: str, coins: Utils.Coins) -> None:
     profile["coins"] += coins
+    AddStat(profile, "coins.spent", -coins)
+    AddStat(profile, f"coins.on.{sink}", -coins)
+    MaxStat(profile, "coins.peak", profile["coins"])
 
 def TotalRolls(profile: dict) -> int:
     return profile["rolls"] + profile.get("bonusRolls", 0)
@@ -220,6 +264,9 @@ def ApplyRefill(
     guildID: Utils.GuildID,
     scope: Utils.UserScope | None = None,
 ) -> bool:
+    if "since" not in profile:
+        rows = PersistentUserData.persistentUserData.get(scope, {})
+        profile["since"] = min((json.loads(row)["claimedAt"] for key, row in rows.items() if key.startswith("item.")), default=int(time.time()))
     nowHour = Utils.CurrentHour()
     hours = nowHour - profile["lastRefillHour"]
     if hours <= 0:

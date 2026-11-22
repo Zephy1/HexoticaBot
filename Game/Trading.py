@@ -230,6 +230,8 @@ def ExecuteBuild(trade: TradeData):
             profile = profiles[uid]
             Profiles.Unshowcase(profile, trade.items[uid])
             profile["coins"] += trade.coins[trade.Other(uid)] - trade.coins[uid]
+            Profiles.AddStat(profile, "trades.completed")
+            Profiles.MaxStat(profile, "coins.peak", profile["coins"])
             userUpdates[scopes[uid]]["profile"] = profile
 
         return userUpdates, appUpdates, None

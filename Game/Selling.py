@@ -58,6 +58,9 @@ async def SellItems(
             sold.append(itemID)
             if paid:
                 coins += Drops.SellValue(guildID, item["rarity"], multiplier)
+                Profiles.AddStat(profile, "sold.pieces")
+                Profiles.AddStat(profile, f"sold.armor.{item['armor']}")
+                Profiles.AddStat(profile, f"sold.slot.{item['slot']}")
             userRows[f"item.{itemID}"] = None
             appUpdates[f"itemOwner.{guildID}.{itemID}"] = None
             appUpdates[f"appData.void.{guildID}.{itemID}"] = record

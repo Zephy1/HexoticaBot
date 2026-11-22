@@ -83,6 +83,7 @@ async def BuyLuckPotion(
         if profile["coins"] < cost:
             raise ValueError(Say(Text.POTION_COST, cost=Utils.CompactNumber(cost), coins=Utils.CompactNumber(profile['coins'])))
         Profiles.Spend(profile, "potions", cost)
+        Profiles.AddStat(profile, "potions.bought")
         profile["luckClockUntil"] = max(profile.get("luckClockUntil", 0), Clock()) + LUCK_POTION_SECONDS
         expires = WallTime(profile["luckClockUntil"])
         return Profiles.ProfileUpdate(scope, profile), {}, (expires, cost)

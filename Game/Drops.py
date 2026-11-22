@@ -51,6 +51,7 @@ class Drop:
     extras: list[Lists.DropBundle]
     dropType: DropType = DropType.TIMED
     expiresAt: float = 0.0
+    postedAt: float = 0.0
     state: DropState = DropState.OPEN
     message: discord.Message | None = None
     bonusCoins: Utils.Coins = 0
@@ -224,6 +225,28 @@ def ClaimBuild(drops: list[Drop], userID: Utils.MemberID):
             drop.bonusCoins = SellValue(guildID, drop.bundle.rarity, setting=Utils.Setting.BONUS_COIN_RATE) if hasBonus else 0
             drop.bonusLoot = Items.RollLoot(drop.bonusCoins)
             Profiles.Earn(profile, "bonus", drop.bonusCoins)
+            if hasBonus:
+                Profiles.AddStat(profile, "bonus.procs")
+            bestKey = "rolled.bestRarity"
+            if drop.dropType is not DropType.ROLL:
+                bestKey = "claimed.bestRarity"
+                Profiles.AddStat(profile, "claims.total")
+                Profiles.AddStat(profile, "rolls.total")
+                if drop.postedAt:
+                    Profiles.MinStat(profile, "claims.fastest", round(time.monotonic() - drop.postedAt, 3))
+            for bundle in drop.bundles:
+                Profiles.AddStat(profile, "rolled.bundles")
+                if IsSpecial(guildID, bundle):
+                    Profiles.AddStat(profile, "rolled.special")
+                if bundle.void:
+                    Profiles.AddStat(profile, "rolled.void", len(bundle.pieces))
+                elif bundle is not drop.bundle:
+                    Profiles.AddStat(profile, "rolled.bonus")
+                for armor in {piece.armor for piece in bundle.pieces}:
+                    Profiles.AddStat(profile, f"rolled.armor.{armor}")
+                for piece in bundle.pieces:
+                    Profiles.AddStat(profile, f"rolled.slot.{piece.slot}")
+                    Profiles.MaxStat(profile, bestKey, piece.rarity)
 
         userItems, appUpdates, itemIDs = Items.AddItems(guildID, userID, sources)
         userUpdates = {scope: {"profile": profile, **userItems}}
@@ -258,8 +281,12 @@ def RollBuild(drops: list[Drop], userID: Utils.MemberID):
         if held >= 1:
             appUpdates[f"pendingRoll.{scope}"] = held - 1 or None
             profile = userUpdates[scope]["profile"]
+            Profiles.AddStat(profile, "rolls.total")
+            if len(drops) > 1:
+                Profiles.AddStat(profile, "rolls.double")
             if random.random() < Upgrades.FreeRollChance(profile, guildID):
                 profile["rolls"] += 1
+                Profiles.AddStat(profile, "rolls.free")
         return userUpdates, appUpdates, itemIDs
     return rollBuild, onSuccess
 
@@ -377,6 +404,7 @@ async def PostDrop(channel: Utils.SendableChannel, drop: Drop) -> discord.Messag
     view, files = await Compose([drop], extras=False, claimable=True)
     message = await channel.send(view=view, files=files)
     drop.message = message
+    drop.postedAt = time.monotonic()
     drop.expiresAt = time.monotonic() + Utils.GetSettingValueFromGuild(drop.guildID, Utils.Setting.CLAIM_EXPIRY_SECONDS)
     drops[message.id] = drop
     ArmExpiry(drop)
