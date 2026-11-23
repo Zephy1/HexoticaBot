@@ -105,6 +105,23 @@ async def SearchPrefix(
 ) -> list[tuple[str, str]]:
     return await asyncio.to_thread(SearchPrefixBlocking, name, prefix, text, limit, byRarity)
 
+def ItemSupplyBlocking(prefix: str, armor: str | None, hexCode: str | None, rows: bool = False) -> list[tuple]:
+    upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+    columns = "substr(key, instr(key, ':item.') + 6), value" if rows else "json_extract(value, '$.hex'), json_extract(value, '$.slot'), COUNT(*)"
+    query = f"SELECT substr(key, ?, instr(key, ':item.') - ?), {columns} FROM data WHERE collection = 'userData' AND key >= ? AND key < ? AND instr(key, ':item.') > 0 AND json_extract(value, '$.bundleID') IS NOT 'admin'"
+    values: list = [len(prefix) + 1, len(prefix) + 1, prefix, upper]
+    if armor is not None:
+        query += " AND json_extract(value, '$.armor') = ?"
+        values.append(armor)
+    if hexCode is not None:
+        query += " AND json_extract(value, '$.hex') = ?"
+        values.append(hexCode)
+    with readDatabaseLock:
+        return readDatabase.execute(query + ("" if rows else " GROUP BY 1, 2, 3"), values).fetchall()
+
+async def ItemSupply(prefix: str, armor: str | None, hexCode: str | None = None, rows: bool = False) -> list[tuple]:
+    return await asyncio.to_thread(ItemSupplyBlocking, prefix, armor, hexCode, rows)
+
 async def WriteRows(rows: list[tuple[str, str, str | None]]) -> None:
     if rows:
         await asyncio.to_thread(WriteRowsBlocking, rows)

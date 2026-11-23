@@ -9,6 +9,7 @@ from discord import app_commands
 
 from Utils.Translation import Say, Text
 from Game import InventoryPanel
+from Game import ColorEmoji
 from Game import InventoryCard
 from Utils import Variables
 from Game import Inventory
@@ -143,7 +144,10 @@ class ShowcasePanel(InventoryPanel.InventoryPanel):
     def SlotOption(self, slot: Utils.SlotIndex) -> discord.SelectOption:
         pieces = [self.byID[itemID] for itemID in self.Assigned(slot)]
         label = Say(Text.SHOWCASE_SLOT_OPTION, slot=slot, armor=Say(Text.SHOWCASE_THREE_PIECE) if len({piece.armor for piece in pieces}) > 1 else Inventory.ArmorLabel(pieces[0].armor), count=len(pieces), s=Utils.PluralS(len(pieces))) if pieces else Say(Text.SHOWCASE_SLOT_OPTION_EMPTY, slot=slot)
-        return discord.SelectOption(label=label[:100], value=str(slot), emoji="\u2B50" if slot in self.earn else None, default=slot == self.slot)
+        if slot in self.earn:
+            label = f"\u2B50 {label}"
+        swatch = ColorEmoji.Emoji(min(pieces, key=PieceOrder).hexCode) if pieces else None
+        return discord.SelectOption(label=label[:100], value=str(slot), emoji=swatch, default=slot == self.slot)
 
     def HeaderRows(self) -> list[discord.ui.ActionRow]:
         filled = self.slot in self.assign.values()
