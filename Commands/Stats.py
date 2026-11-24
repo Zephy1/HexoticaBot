@@ -42,7 +42,7 @@ class StatsView(discord.ui.LayoutView):
     async def Show(self) -> None:
         profile = await Profiles.PeekProfile(self.guildID, self.targetID)
         stats = Profiles.PeriodStats(profile, self.period)
-        itemCount = len(await Inventory.LoadItems(self.guildID, self.targetID, profile, set())) if self.tab == "overview" else 0
+        itemCount = await Inventory.CountItems(self.guildID, self.targetID) if self.tab == "overview" else 0
         title = discord.ui.TextDisplay(Say(Text.STATS_TITLE, user=self.targetID, tab=Say(statsTabs[self.tab]), period=Say(statsPeriods[self.period]), since=profile["since"]))
         parts = [discord.ui.Section(title, accessory=discord.ui.Thumbnail(self.avatarURL)) if self.avatarURL else title, discord.ui.Separator()]
         for block in tabBlocks[self.tab](profile, stats, itemCount) if stats else [Say(Text.STATS_EMPTY)]:

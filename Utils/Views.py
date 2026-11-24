@@ -32,7 +32,7 @@ def ButtonCallback(func=None, *, thinking=False):
         except Utils.CommandAbort:
             return None
         except Exception as e:
-            await Logger.LogInteractionError(interaction=interaction, client=MainBot.GetClient(), message=f"Unhandled exception in button: {e}")
+            await Logger.LogInteractionError(interaction=interaction, message=f"Unhandled exception in button: {e}")
     return guarded
 
 panelTimeoutSeconds = 840

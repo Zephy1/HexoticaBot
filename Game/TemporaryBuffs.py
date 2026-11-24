@@ -1,12 +1,9 @@
 import asyncio
 import time
 
-from enum import StrEnum
-
 from Utils.Translation import Say, Text
 from Database import PersistentAppData
 from Database import Atomic
-from Utils import Variables
 from Game import Profiles
 from Utils import Utils
 
@@ -15,20 +12,6 @@ BEACON_SECONDS = 60 * 60
 BEACON_KINDS = ("luck", "frequency")
 CLOCK_KEY = "buffClock"
 CLOCK_SAVE_SECONDS = 15
-
-class BuffSetting(StrEnum):
-    LUCK_POTION_COST = "luckPotionCost"
-    LUCK_POTION_BONUS = "luckPotionBonus"
-    BEACON_COST = "beaconCost"
-    BEACON_BONUS = "beaconBonus"
-
-BUFF_SETTINGS = {
-    BuffSetting.LUCK_POTION_COST:  Variables.GameSetting(Say(Text.SETTING_LUCK_POTION_COST_LABEL), Say(Text.SETTING_LUCK_POTION_COST_DESCRIPTION), 250_000_000, 1, 10_000_000_000, isInt=True),
-    BuffSetting.LUCK_POTION_BONUS: Variables.GameSetting(Say(Text.SETTING_LUCK_POTION_BONUS_LABEL), Say(Text.SETTING_LUCK_POTION_BONUS_DESCRIPTION), 1.5, 1.0, 10.0),
-    BuffSetting.BEACON_COST:       Variables.GameSetting(Say(Text.SETTING_BEACON_COST_LABEL), Say(Text.SETTING_BEACON_COST_DESCRIPTION), 1_000_000_000, 1, 100_000_000_000, isInt=True),
-    BuffSetting.BEACON_BONUS:      Variables.GameSetting(Say(Text.SETTING_BEACON_BONUS_LABEL), Say(Text.SETTING_BEACON_BONUS_DESCRIPTION), 0.5, 0.0, 5.0),
-}
-Variables.SETTINGS.update(BUFF_SETTINGS)
 
 clockBase = 0.0
 clockStart = time.monotonic()
@@ -67,7 +50,7 @@ def LuckPotionMultiplier(
     guildID: Utils.GuildID,
 ) -> float:
     if profile.get("luckClockUntil", 0) > Clock():
-        return Utils.GetSettingValueFromGuild(guildID, BuffSetting.LUCK_POTION_BONUS)
+        return Utils.GetSettingValueFromGuild(guildID, Utils.Setting.LUCK_POTION_BONUS)
     return 1.0
 
 async def BuyLuckPotion(
@@ -76,7 +59,7 @@ async def BuyLuckPotion(
 ) -> tuple[float, Utils.Coins]:
     scope = Profiles.Scope(guildID, userID)
     await Profiles.EnsureProfile(guildID, userID)
-    cost = Utils.GetSettingValueFromGuild(guildID, BuffSetting.LUCK_POTION_COST)
+    cost = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.LUCK_POTION_COST)
 
     def build():
         profile = Profiles.ClaimProfile(guildID, userID)
@@ -99,7 +82,7 @@ def BeaconStatus(
 ) -> tuple[bool, float, Utils.Coins, Utils.Coins]:
     beacon = PeekBeacon(guildID, kind)
     secondsLeft = max(0.0, beacon.get("clockUntil", 0) - Clock())
-    cost = Utils.GetSettingValueFromGuild(guildID, BuffSetting.BEACON_COST)
+    cost = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.BEACON_COST)
     return secondsLeft > 0, secondsLeft, beacon.get("pool", 0), cost
 
 def BeaconMultiplier(
@@ -108,7 +91,7 @@ def BeaconMultiplier(
 ) -> float:
     until = PeekBeacon(guildID, kind).get("clockUntil", 0)
     if until > Clock():
-        return 1 + Utils.GetSettingValueFromGuild(guildID, BuffSetting.BEACON_BONUS)
+        return 1 + Utils.GetSettingValueFromGuild(guildID, Utils.Setting.BEACON_BONUS)
     return 1.0
 
 async def FundBeacon(
@@ -122,7 +105,7 @@ async def FundBeacon(
     coins = int(coins)
     scope = Profiles.Scope(guildID, userID)
     await Profiles.EnsureProfile(guildID, userID)
-    cost = Utils.GetSettingValueFromGuild(guildID, BuffSetting.BEACON_COST)
+    cost = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.BEACON_COST)
 
     def build():
         profile = Profiles.ClaimProfile(guildID, userID)
@@ -164,9 +147,7 @@ async def AdminSetLuckPotion(
     await Profiles.EnsureProfile(guildID, userID)
 
     def build():
-        profile = Profiles.CachedProfile(scope)
-        if profile is None:
-            raise ValueError(Say(Text.NO_PROFILE_USER))
+        profile = Profiles.RequiredProfile(guildID, userID)
         if seconds > 0:
             profile["luckClockUntil"] = Clock() + seconds
             expires = WallTime(profile["luckClockUntil"])

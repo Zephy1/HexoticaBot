@@ -6,7 +6,6 @@ import inspect
 import asyncio
 import discord
 import signal
-import atexit
 import time
 import sys
 import os
@@ -18,6 +17,7 @@ from datetime import datetime
 
 from Database import PersistentUserData
 from Utils.Translation import Say, Text
+from Utils import Translation
 from Database import PersistentAppData
 from Database import PersistentData
 from Game import TemporaryBuffs
@@ -102,7 +102,7 @@ def GuardCommand(
             except Utils.CommandAbort:
                 return None
             except Exception as e:
-                await Logger.LogInteractionError(interaction=interaction, client=GetClient(), message=f"{type(e).__name__}: {e}")
+                await Logger.LogInteractionError(interaction=interaction, message=f"{type(e).__name__}: {e}")
                 if onError is not None:
                     await onError(interaction, e)
         return guarded
@@ -158,7 +158,7 @@ def AppCommandWithAliases(
 async def IsUserBlacklisted(interaction: discord.Interaction, logUsage: bool = True):
     channelID = interaction.channel_id
     if channelID not in Variables.dontLogChannels and logUsage:
-        FireAndForget(Logger.LogCommandUsage(interaction=interaction, client=client))
+        FireAndForget(Logger.LogCommandUsage(interaction))
 
     if channelID in Variables.blacklistedChannels:
         await Logger.SendInteractionMessage(interaction=interaction, message=Variables.blacklistedChannels[channelID], ephemeral=False)
@@ -180,8 +180,7 @@ async def IsUserBlacklisted(interaction: discord.Interaction, logUsage: bool = T
         return True
 
     if logUsage:
-        totalCommands = PersistentAppData.GetData("totalCommands", 0)
-        await PersistentAppData.UpdateData("totalCommands", totalCommands + 1, showMessage=False, durable=False)
+        PersistentAppData.Increment("totalCommands")
     return False
 
 async def EnsureGuildReady(interaction: discord.Interaction):
@@ -231,6 +230,16 @@ class Client(commands.Bot):
             print(f"Failed to sync commands: {traceback.format_exc()}")
         return False, None
 
+    async def LoadCommandMentions(self):
+        try:
+            mentions = {command.qualified_name: command.mention for root in await self.tree.fetch_commands() for command in (root, *root.walk_commands())}
+        except Exception:
+            print(f"Failed to load command mentions: {traceback.format_exc()}")
+            return
+        for key, name in Translation.commandNames.items():
+            if name in mentions:
+                Translation.commandMentions[key] = mentions[name]
+
     async def setup_hook(self):
         self.add_view(Drops.ClaimView())
         FireAndForget(PersistentData.BackupLoop())
@@ -244,6 +253,7 @@ class Client(commands.Bot):
         print(f'Logged in as {self.user} (ID: {self.user.id}) in {time.time() - self.startTime:.2f} seconds')
         if Variables.shouldSyncCommands:
             await self.SyncCommands()
+        await self.LoadCommandMentions()
 
 def GetClient():
     assert client is not None, "Client has not been initialized"
@@ -275,21 +285,18 @@ async def Startup():
 
     LoadCommands("Commands")
 
-def Shutdown():
-    global hasShutdown
-    if hasShutdown:
-        return
-    hasShutdown = True
-
-    print("Shutdown detected.")
 def RequestShutdown(signum=None, frame=None):
     loop = client.loop if client is not None else None
     if isinstance(loop, asyncio.AbstractEventLoop) and loop.is_running():
         loop.call_soon_threadsafe(FireAndForget, ShutdownAndClose())
     else:
-        Shutdown()
         sys.exit(0)
 async def ShutdownAndClose():
+    global hasShutdown
+    if hasShutdown:
+        return
+    hasShutdown = True
+    print("Shutdown detected.")
     for step in (
         Drops.ShutdownDrops,
         Trading.ShutdownTrades,
@@ -303,7 +310,6 @@ async def ShutdownAndClose():
 if multiprocessing.parent_process() is None:
     signal.signal(signal.SIGINT, RequestShutdown)
     signal.signal(signal.SIGTERM, RequestShutdown)
-    atexit.register(Shutdown)
 
 async def Main():
     global client
@@ -321,7 +327,6 @@ async def Main():
         token = file.read().strip()
     if not token:
         print(f"Bot token file is empty: {filePath}")
-        Shutdown()
         return
 
     assert client is not None, "Client is not initialized."
@@ -333,4 +338,3 @@ async def Main():
             await PersistentAppData.Flush()
         except Exception:
             print(f"Final app data flush failed: {traceback.format_exc()}")
-        Shutdown()

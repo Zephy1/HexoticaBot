@@ -216,7 +216,7 @@ class TradeTable(discord.ui.LayoutView):
         if trade is None:
             return
         if not Trading.Lock(trade, interaction.user.id):
-            await Trading.Reply(interaction, Say(Text.TRADE_EMPTY))
+            await Logger.Reply(interaction, Say(Text.TRADE_EMPTY))
             return
         if trade.state is Trading.TradeState.EXECUTING:
             await Trading.Execute(trade, interaction)
@@ -235,6 +235,7 @@ class TradeTable(discord.ui.LayoutView):
 async def Command_Trade(interaction: discord.Interaction, user: discord.Member):
     await interaction.response.defer(thinking=True, ephemeral=True)
     guildID = await Utils.RequireGuild(interaction.guild_id, interaction)
+    channel = await Utils.RequireChannel(interaction)
 
     sender = interaction.user.id
     recipient = user.id
@@ -255,7 +256,7 @@ async def Command_Trade(interaction: discord.Interaction, user: discord.Member):
     trade.avatars = {member.id: await AvatarBytes(member) for member in (interaction.user, user)}
     trade.view = TradeTable(trade)
     files = await trade.view.Compose()
-    trade.message = await interaction.channel.send(view=trade.view, files=files)
+    trade.message = await channel.send(view=trade.view, files=files)
     Trading.Register(trade)
     Trading.ArmTimeout(trade)
-    await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.TRADE_STARTED), ephemeral=True)
+    await Logger.Reply(interaction, Say(Text.TRADE_STARTED))

@@ -41,7 +41,6 @@ PERSISTENT_DATA_BACKUPS_PATH = os.path.join(PERSISTENT_DATA_PATH, "Backups")
 PERSISTENT_DB_FILE_PATH = os.path.join(PERSISTENT_DATA_PATH, "Persistent.db")
 COMMAND_LOG_FILE_PATH = os.path.join(LOGS_PATH, "CommandLog.txt")
 ERROR_LOG_FILE_PATH = os.path.join(LOGS_PATH, "ErrorLog.txt")
-REQUESTS_LOG_FILE_PATH = os.path.join(LOGS_PATH, "RequestsLog.txt")
 
 ITEM_LISTS_PATH = os.path.join(INPUT_PATH, "ItemLists")
 ARMOR_IMAGES_PATH = os.path.join(INPUT_PATH, "Images")
@@ -81,6 +80,10 @@ class Setting(StrEnum):
     DROP_INTERVAL_MAX_SECONDS = "dropIntervalMaxSeconds"
     CLAIM_EXPIRY_SECONDS = "claimExpirySeconds"
     TRADE_TIMEOUT_SECONDS = "tradeTimeoutSeconds"
+    LUCK_POTION_COST = "luckPotionCost"
+    LUCK_POTION_BONUS = "luckPotionBonus"
+    BEACON_COST = "beaconCost"
+    BEACON_BONUS = "beaconBonus"
 
     @property
     def definition(self) -> GameSetting:
@@ -111,4 +114,8 @@ SETTINGS: dict[str, GameSetting] = dict([
     Define(Setting.DROP_INTERVAL_MAX_SECONDS, 450, 10, 86_400, isInt=True),
     Define(Setting.CLAIM_EXPIRY_SECONDS, 300, 10, 900, isInt=True),
     Define(Setting.TRADE_TIMEOUT_SECONDS, 180, 10, 300, isInt=True),
+    Define(Setting.LUCK_POTION_COST, 250_000_000, 1, 10_000_000_000, isInt=True),
+    Define(Setting.LUCK_POTION_BONUS, 1.5, 1.0, 10.0),
+    Define(Setting.BEACON_COST, 1_000_000_000, 1, 100_000_000_000, isInt=True),
+    Define(Setting.BEACON_BONUS, 0.5, 0.0, 5.0),
 ])

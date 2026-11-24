@@ -14,7 +14,6 @@ else:
 from Utils import Variables
 from Utils import Logger
 
-Deleted = object()
 database = None
 databaseLock = threading.Lock()
 readDatabase = None
@@ -22,6 +21,9 @@ readDatabaseLock = threading.Lock()
 backupDelaySeconds = 4 * 60 * 60
 
 instanceLockFile = None
+
+def PrefixRange(prefix: str) -> tuple[str, str]:
+    return prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1)
 
 def LockSingleInstance() -> None:
     global instanceLockFile
@@ -61,9 +63,8 @@ async def LoadCollection(name: str) -> dict:
     return {key: json.loads(value) for key, value in rows}
 
 def ReadPrefixBlocking(name: str, prefix: str) -> dict:
-    upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
     with readDatabaseLock:
-        rows = readDatabase.execute("SELECT key, value FROM data WHERE collection = ? AND key >= ? AND key < ?", (name, prefix, upper)).fetchall()
+        rows = readDatabase.execute("SELECT key, value FROM data WHERE collection = ? AND key >= ? AND key < ?", (name, *PrefixRange(prefix))).fetchall()
     return {key[len(prefix):]: value for key, value in rows}
 
 async def ReadPrefix(name: str, prefix: str) -> dict:
@@ -84,9 +85,8 @@ def SearchPrefixBlocking(
     limit: int,
     byRarity: bool,
 ) -> list[tuple[str, str]]:
-    upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
     query = "SELECT key, value FROM data WHERE collection = ? AND key >= ? AND key < ?"
-    values: list = [name, prefix, upper]
+    values: list = [name, *PrefixRange(prefix)]
     if text:
         query += " AND instr(lower(substr(key, ?)), ?) > 0"
         values += [len(prefix) + 1, text.lower()]
@@ -106,10 +106,9 @@ async def SearchPrefix(
     return await asyncio.to_thread(SearchPrefixBlocking, name, prefix, text, limit, byRarity)
 
 def ItemSupplyBlocking(prefix: str, armor: str | None, hexCode: str | None, rows: bool = False) -> list[tuple]:
-    upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
     columns = "substr(key, instr(key, ':item.') + 6), value" if rows else "json_extract(value, '$.hex'), json_extract(value, '$.slot'), COUNT(*)"
     query = f"SELECT substr(key, ?, instr(key, ':item.') - ?), {columns} FROM data WHERE collection = 'userData' AND key >= ? AND key < ? AND instr(key, ':item.') > 0 AND json_extract(value, '$.bundleID') IS NOT 'admin'"
-    values: list = [len(prefix) + 1, len(prefix) + 1, prefix, upper]
+    values: list = [len(prefix) + 1, len(prefix) + 1, *PrefixRange(prefix)]
     if armor is not None:
         query += " AND json_extract(value, '$.armor') = ?"
         values.append(armor)
@@ -140,17 +139,6 @@ def WriteRowsBlocking(rows: list[tuple[str, str, str | None]]) -> None:
             if database.in_transaction:
                 database.execute("ROLLBACK")
             raise
-
-def ToRows(name: str, values: dict) -> list:
-    return [(name, key, None if value is Deleted else json.dumps(value)) for key, value in values.items()]
-
-async def WriteValues(name: str, values: dict) -> None:
-    if values:
-        await asyncio.to_thread(WriteValuesBlocking, name, values)
-
-def WriteValuesBlocking(name: str, values: dict) -> None:
-    if values:
-        WriteRowsBlocking(ToRows(name, values))
 
 def BackupDatabase(keep: int = 12, backupPath: str | None = None) -> None:
     backupPrefix = os.path.join(Variables.PERSISTENT_DATA_BACKUPS_PATH, "Persistent")

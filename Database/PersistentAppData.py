@@ -25,6 +25,10 @@ def Set(
     if showMessage:
         print(f"Saved {key}: {value}")
 
+def Increment(key: str) -> None:
+    with lock:
+        Set(key, persistentAppData.get(key, 0) + 1)
+
 def FlushNow():
     with flushLock:
         with lock:
@@ -73,15 +77,3 @@ async def UpdateData(
         Set(key, newValueData, showMessage)
     if durable:
         await Flush()
-async def DeleteData(
-    key,
-    showMessage: bool,
-    durable: bool = True,
-):
-    with lock:
-        persistentAppData.pop(key, None)
-        dirtyRows[key] = None
-    if durable:
-        await Flush()
-    if showMessage:
-        print(f"Deleted {key}")

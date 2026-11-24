@@ -122,11 +122,14 @@ class InventoryPanel(Views.Panel):
         self.byID: dict[Utils.ItemID, Inventory.InventoryItem] = {}
         self.visible: list[Inventory.InventoryItem] = []
 
-    async def Load(self) -> None:
+    async def FetchItems(self) -> list[Inventory.InventoryItem]:
         profile = Profiles.CachedProfile(Profiles.Scope(self.guildID, self.inventoryID))
         if profile is None:
             profile = await Profiles.EnsureProfile(self.guildID, self.inventoryID)
-        self.items = await Inventory.LoadItems(self.guildID, self.inventoryID, profile, self.Pending())
+        return await Inventory.LoadItems(self.guildID, self.inventoryID, profile, self.Pending())
+
+    async def Load(self) -> None:
+        self.items = await self.FetchItems()
         self.byID = {item.itemID: item for item in self.items}
         self.selected = {itemID for itemID in self.selected if itemID in self.byID and not self.byID[itemID].locked}
         self.Conform()
@@ -201,12 +204,14 @@ class InventoryPanel(Views.Panel):
         hidden = sum(1 for item in chosen if item.itemID not in visibleIDs)
         return Say(Text.INVENTORY_SELECTION_HIDDEN, hidden=hidden) if hidden else ""
 
-    def CommonButtons(self, selectedCount: int) -> list[discord.ui.Button]:
+    def SearchButtons(self) -> list[discord.ui.Button]:
         return [
-            Views.Button(Say(Text.INVENTORY_BUTTON_CLEAR), self.OnClear, disabled=not selectedCount),
             Views.Button(Say(Text.INVENTORY_BUTTON_SEARCH), self.OnSearch),
             Views.Button(Say(Text.INVENTORY_BUTTON_RESET), self.OnReset, disabled=not self.filters.active),
         ]
+
+    def CommonButtons(self, selectedCount: int) -> list[discord.ui.Button]:
+        return [Views.Button(Say(Text.INVENTORY_BUTTON_CLEAR), self.OnClear, disabled=not selectedCount), *self.SearchButtons()]
 
     def ActionButtons(self, selectedCount: int) -> tuple[list[discord.ui.Button], discord.Color]:
         return self.CommonButtons(selectedCount), Variables.defaultDiscordColor
@@ -239,9 +244,11 @@ class InventoryPanel(Views.Panel):
         return Views.Dropdown(Say(Text.INVENTORY_PLACEHOLDER_PIECE), options, functools.partial(self.OnFilter, "slot"))
 
     def ArmorSelect(self) -> discord.ui.Select:
-        counts = Inventory.ArmorCounts(self.items)[:Inventory.maxArmorOptions]
-        if self.filters.armor is not None and self.filters.armor not in dict(counts):
-            counts = [*counts[:Inventory.maxArmorOptions - 1], (self.filters.armor, 0)]
+        owned = dict(Inventory.ArmorCounts(self.items))
+        counts = list(owned.items())[:Inventory.maxArmorOptions]
+        active = self.filters.armor
+        if active in owned and (active, owned[active]) not in counts:
+            counts = [*counts[:Inventory.maxArmorOptions - 1], (active, owned[active])]
         options = [discord.SelectOption(label=Say(Text.INVENTORY_ALL_ARMOR), value="all", default=self.filters.armor is None)]
         options += [
             discord.SelectOption(
@@ -322,7 +329,7 @@ class InventoryPanel(Views.Panel):
         self.lastInteraction = interaction
         await self.Load()
         if not self.items and not self.allowEmpty:
-            await Logger.SendInteractionMessage(interaction=interaction, message=Say(self.emptyText), ephemeral=True)
+            await Logger.Reply(interaction, Say(self.emptyText))
             return
         files = await self.Compose()
         await interaction.followup.send(view=self, files=files, ephemeral=True)
@@ -345,10 +352,14 @@ class InventoryPanel(Views.Panel):
     @Views.ButtonCallback
     async def OnFilter(self, field: str, interaction: discord.Interaction):
         self.Touch(interaction)
-        value = interaction.data["values"][0]
-        setattr(self.filters, field, None if value == "all" else value)
+        self.SetFilter(field, interaction.data["values"][0])
         self.page = 0
         await self.Show(interaction)
+
+    def SetFilter(self, field: str, value: str) -> None:
+        setattr(self.filters, field, None if value == "all" else value)
+        if self.filters.slot is not None and Utils.ArmorSlot(self.filters.slot) not in Items.ArmorSlots(self.filters.armor):
+            self.filters.slot = None
 
     @Views.ButtonCallback
     async def OnPage(self, step: int, interaction: discord.Interaction):

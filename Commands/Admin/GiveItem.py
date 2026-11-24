@@ -37,12 +37,12 @@ async def Command_AdminGiveItem(
 
     armorType = Items.GetArmorType(armor_type)
     if armorType is None or armorType not in Lists.index.armorTypes:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_GIVE_ITEM_BAD_ARMOR, armor=armor_type), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_GIVE_ITEM_BAD_ARMOR, armor=armor_type))
         return
 
     hexColor = Utils.TryGetHexColor(hex_code)
     if hexColor is None or hexColor.isBlank:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_GIVE_ITEM_BAD_HEX, hexCode=hex_code), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_GIVE_ITEM_BAD_HEX, hexCode=hex_code))
         return
 
     slots = Items.ArmorSlots(armorType)
@@ -51,7 +51,7 @@ async def Command_AdminGiveItem(
     except ValueError:
         armorSlot = None
     if armorSlot is None or armorSlot not in slots:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_GIVE_ITEM_BAD_SLOT, armor=armorType, slot=armor_slot, slots=", ".join(s.lower() for s in slots)), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_GIVE_ITEM_BAD_SLOT, armor=armorType, slot=armor_slot, slots=", ".join(s.lower() for s in slots)))
         return
 
     piece = Lists.BundlePiece(hexColor.hexCode, armorType, armorSlot, -1, f"{armorType} {armorSlot}", {})

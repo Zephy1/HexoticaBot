@@ -54,7 +54,7 @@ class SetupView(Views.Panel):
             else:
                 config[key] = value
         if not config.get("dropChannelID"):
-            await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETUP_NEED_DROP), ephemeral=True)
+            await Logger.Reply(interaction, Say(Text.ADMIN_SETUP_NEED_DROP))
             return
 
         await interaction.response.defer(thinking=True, ephemeral=True)

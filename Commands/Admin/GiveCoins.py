@@ -2,9 +2,9 @@ import MainBot
 
 import discord
 
-from Database import PersistentUserData
 from Utils.Translation import Say, Text
 from Commands.Admin import adminGroup, RequireTarget
+from Database import Atomic
 from Game import Profiles
 from Utils import Logger
 from Utils import Utils
@@ -27,12 +27,8 @@ async def Command_AdminGiveCoins(
     await interaction.response.defer(thinking=True, ephemeral=True)
     guildID = await RequireTarget(interaction, user)
 
-    profile = await PersistentUserData.ModifyUserData(
+    profile = await Atomic.ModifyUserData(
         Profiles.Scope(guildID, user.id), "profile",
         lambda p: {**p, "coins": max(0, p["coins"] + amount)},
     )
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.ADMIN_GIVE_COINS_GAVE, amount=Utils.CompactNumber(abs(amount)), userID=user.id, total=Utils.CompactNumber(profile['coins'])),
-        ephemeral=True,
-    )
+    await Logger.Reply(interaction, Say(Text.ADMIN_GIVE_COINS_GAVE, amount=Utils.CompactNumber(abs(amount)), userID=user.id, total=Utils.CompactNumber(profile['coins'])))

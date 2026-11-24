@@ -2,9 +2,9 @@ import MainBot
 
 import discord
 
-from Database import PersistentUserData
 from Utils.Translation import Say, Text
 from Commands.Admin import adminGroup, RequireTarget
+from Database import Atomic
 from Game import Profiles
 from Utils import Logger
 from Utils import Utils
@@ -27,12 +27,8 @@ async def Command_AdminSetRolls(
     await interaction.response.defer(thinking=True, ephemeral=True)
     guildID = await RequireTarget(interaction, user)
 
-    await PersistentUserData.ModifyUserData(
+    await Atomic.ModifyUserData(
         Profiles.Scope(guildID, user.id), "profile",
         lambda p: {**p, "bonusRolls": max(0, amount)},
     )
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.ADMIN_SET_ROLLS_SET, userID=user.id, amount=max(0, amount), s=Utils.PluralS(max(0, amount))),
-        ephemeral=True,
-    )
+    await Logger.Reply(interaction, Say(Text.ADMIN_SET_ROLLS_SET, userID=user.id, amount=max(0, amount), s=Utils.PluralS(max(0, amount))))

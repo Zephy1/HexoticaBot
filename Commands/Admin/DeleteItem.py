@@ -32,17 +32,13 @@ async def Command_AdminDeleteItem(
 
     parsed = Items.ParseItemID(itemID)
     if parsed is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.GLOBAL_ITEM_ID_INVALID, itemID=itemID), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.GLOBAL_ITEM_ID_INVALID, itemID=itemID))
         return
 
     normalizedID = parsed.itemID
     result = await Selling.SellItems(guildID, user.id, [normalizedID], Selling.SellSource.ADMIN)
     if not result.sold:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_DELETE_ITEM_NOT_OWNED, userID=user.id, itemID=normalizedID), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_DELETE_ITEM_NOT_OWNED, userID=user.id, itemID=normalizedID))
         return
 
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.ADMIN_DELETE_ITEM_DONE, itemID=normalizedID, userID=user.id),
-        ephemeral=True,
-    )
+    await Logger.Reply(interaction, Say(Text.ADMIN_DELETE_ITEM_DONE, itemID=normalizedID, userID=user.id))

@@ -28,12 +28,12 @@ async def Command_AdminSpawn(
     channel = await Utils.RequireChannel(interaction)
 
     if minRarity is not None and maxRarity is not None and minRarity > maxRarity:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SPAWN_BAD_RANGE), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_SPAWN_BAD_RANGE))
         return
 
     rarityRange = (minRarity, maxRarity) if minRarity is not None or maxRarity is not None else None
     if await Drops.SpawnDrop(guildID, channel, rarityRange) is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SPAWN_NOTHING_IN_RANGE if rarityRange is not None else Text.ADMIN_SPAWN_NOTHING), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_SPAWN_NOTHING_IN_RANGE if rarityRange is not None else Text.ADMIN_SPAWN_NOTHING))
         return
 
-    await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SPAWN_DONE), ephemeral=True)
+    await Logger.Reply(interaction, Say(Text.ADMIN_SPAWN_DONE))

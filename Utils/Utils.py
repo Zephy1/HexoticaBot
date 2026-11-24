@@ -529,9 +529,9 @@ async def SetSetting(
     config = PersistentAppData.GetData(f"guildConfig.{guildID}", {})
     settings = config.setdefault("settings", {})
     if value is None:
-        settings.pop(str(name), None)
+        settings.pop(name, None)
     else:
-        settings[str(name)] = value
+        settings[name] = value
     await PersistentAppData.UpdateData(f"guildConfig.{guildID}", config, showMessage=False)
 
 def GuildConfig(guildID: GuildID) -> dict:

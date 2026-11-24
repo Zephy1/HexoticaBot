@@ -234,6 +234,51 @@ class ListIndex:
                 "WHERE b.bundleID = ? AND p.slot = ?",
                 (bundleID, slot)).fetchone()
 
+    def FindPieces(
+        self,
+        pairs: Iterable[tuple[Utils.BundleID, str]],
+    ) -> dict[tuple[Utils.BundleID, str], tuple | None]:
+        wanted = set(pairs)
+        found: dict[tuple[Utils.BundleID, str], tuple | None] = dict.fromkeys(wanted)
+        bundleIDs = list({bundleID for bundleID, _ in wanted})
+        with self.dbLock:
+            for start in range(0, len(bundleIDs), 500):
+                chunk = bundleIDs[start:start + 500]
+                for bundleID, slot, *row in self.db.execute(
+                    "SELECT b.bundleID, p.slot, p.hex, p.armor, p.rarity, p.name, p.data FROM pieces p JOIN bundles b ON b.bundleNumber = p.bundleNumber "
+                    f"WHERE b.bundleID IN ({','.join('?' * len(chunk))})", chunk):
+                    if (bundleID, slot) in wanted:
+                        found[(bundleID, slot)] = tuple(row)
+        return found
+
+    def HexCounts(
+        self,
+        armor: str | None,
+        hexCode: str | None,
+        bundleIDs: list[Utils.BundleID] | None = None,
+    ) -> list[tuple[str, str, int]]:
+        filters, values = [], []
+        if armor:
+            filters.append("p.armor = ?")
+            values.append(armor)
+        if hexCode:
+            filters.append("p.hex = ?")
+            values.append(hexCode)
+        counts: dict[tuple[str, str], int] = {}
+        chunks = [None] if bundleIDs is None else [bundleIDs[start:start + 500] for start in range(0, len(bundleIDs), 500)]
+        with self.dbLock:
+            for chunk in chunks:
+                where, args, sql = list(filters), list(values), "SELECT p.hex, p.slot, COUNT(*) FROM pieces p"
+                if chunk is not None:
+                    sql += " JOIN bundles b ON b.bundleNumber = p.bundleNumber"
+                    where.append(f"b.bundleID IN ({','.join('?' * len(chunk))})")
+                    args += chunk
+                if where:
+                    sql += " WHERE " + " AND ".join(where)
+                for hex_, slot, count in self.db.execute(sql + " GROUP BY p.hex, p.slot", args):
+                    counts[(hex_, slot)] = counts.get((hex_, slot), 0) + count
+        return [(hex_, slot, count) for (hex_, slot), count in counts.items()]
+
     def PiecesOf(self, bundleNumber: int) -> list:
         with self.dbLock:
             return self.db.execute("SELECT hex, armor, slot, rarity, name, data FROM pieces WHERE bundleNumber = ? ORDER BY position", (bundleNumber,)).fetchall()
@@ -365,8 +410,9 @@ def ConsumeVoidBundle(guildID: Utils.GuildID, bundle: DropBundle) -> None:
     pool = voidPools.get(guildID, [])
     pool[:] = [entry for entry in pool if entry[1] not in ids]
 
-def AddVoidRecord(guildID: Utils.GuildID, record: dict) -> None:
-    row = index.FindPiece(record["bundleID"], record["slot"])
+def AddVoidRecord(guildID: Utils.GuildID, record: dict, found: dict | None = None) -> None:
+    pair = (record["bundleID"], record["slot"])
+    row = found[pair] if found is not None and pair in found else index.FindPiece(*pair)
     if row is None:
         return
     hexCode, armor, rarity, name, data = row

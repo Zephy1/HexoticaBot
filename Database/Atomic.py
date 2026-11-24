@@ -1,5 +1,6 @@
 import contextlib
 import asyncio
+import inspect
 import json
 
 from collections.abc import Iterable
@@ -28,7 +29,7 @@ async def WaitCommitsIdle(timeout: float) -> bool:
 def Serialize(value) -> str | None:
     return None if value is None else json.dumps(value)
 
-def Apply(
+def ApplyRow(
     cache: dict,
     key: str,
     serialized: str | None,
@@ -41,7 +42,7 @@ def Apply(
         cache[key] = json.loads(serialized) if decode else serialized
 
 async def AtomicUpdate(
-    guildID: Utils.GuildID,
+    guildID: Utils.GuildID | None,
     userScopes: Iterable[Utils.UserScope],
     build,
     useCommitLock: bool = True,
@@ -58,12 +59,16 @@ async def AtomicUpdate(
             await stack.enter_async_context(PersistentUserData.userLocks[scope])
             await PersistentUserData.LoadLocked(scope)
 
-        userUpdates, appUpdates, result = build()
+        built = build()
+        if inspect.isawaitable(built):
+            built = await built
+        userUpdates, appUpdates, result = built
 
-        userRows = {
-            scope: {dataType: Serialize(value) for dataType, value in updates.items()}
-            for scope, updates in userUpdates.items()
-        }
+        userRows = {}
+        for scope, updates in userUpdates.items():
+            cache = PersistentUserData.persistentUserData.get(scope, {})
+            serialized = {dataType: Serialize(value) for dataType, value in updates.items()}
+            userRows[scope] = {dataType: row for dataType, row in serialized.items() if cache.get(dataType) != row}
         rows = [
             ("userData", f"{scope}:{dataType}", serialized)
             for scope, updates in userRows.items()
@@ -89,12 +94,25 @@ async def AtomicUpdate(
         for scope, updates in userRows.items():
             cache = PersistentUserData.persistentUserData.setdefault(scope, {})
             for dataType, serialized in updates.items():
-                Apply(cache, dataType, serialized)
+                ApplyRow(cache, dataType, serialized)
         if appDataUpdates:
             with PersistentAppData.lock:
                 for key, serialized in appDataUpdates.items():
-                    Apply(PersistentAppData.persistentAppData, key, serialized, decode=True)
+                    ApplyRow(PersistentAppData.persistentAppData, key, serialized, decode=True)
                     PersistentAppData.dirtyRows.pop(key, None)
         if onSuccess is not None:
             onSuccess()
         return result
+
+async def ModifyUserData(
+    scope: Utils.UserScope,
+    dataType: str,
+    modifier,
+    defaultValue=None,
+):
+    def build():
+        row = PersistentUserData.persistentUserData[scope].get(dataType)
+        newValue = modifier(json.loads(row if row is not None else json.dumps(defaultValue)))
+        return {scope: {dataType: newValue}}, {}, newValue
+
+    return await asyncio.shield(AtomicUpdate(None, [scope], build, useCommitLock=False))

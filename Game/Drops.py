@@ -26,6 +26,7 @@ from Game import Lists
 
 sendRetries = 3
 sendRetryDelaySeconds = 2
+sendTimeoutSeconds = 30
 
 drops: dict[Utils.MessageID, "Drop"] = {}
 sendSemaphore = asyncio.Semaphore(8)
@@ -182,7 +183,7 @@ def RollCardLayout(
         head = RollBundleHead(drops, drop, bundle, expired)
         if byline:
             head += f"\n{byline}"
-        alt = "; ".join(f"{Items.PieceName(piece)} #{piece.hex} rarity {Items.FormatRarity(piece.rarity)}" for _, piece, _ in slots if piece)
+        alt = "; ".join(f"{Items.PieceName(piece.name)} #{piece.hex} rarity {Items.FormatRarity(piece.rarity)}" for _, piece, _ in slots if piece)
         color = discord.Color.greyple() if expired else BundleColor([bundle])
         blocks.append(([discord.ui.TextDisplay(head), ImageGallery(png, f"armor{number}.png", alt, files)], color))
 
@@ -248,7 +249,7 @@ def ClaimBuild(drops: list[Drop], userID: Utils.MemberID):
                     Profiles.AddStat(profile, f"rolled.slot.{piece.slot}")
                     Profiles.MaxStat(profile, bestKey, piece.rarity)
 
-        userItems, appUpdates, itemIDs = Items.AddItems(guildID, userID, sources)
+        userItems, appUpdates, itemIDs = Items.AddItems(guildID, sources)
         userUpdates = {scope: {"profile": profile, **userItems}}
 
         for target in targets:
@@ -291,13 +292,13 @@ def RollBuild(drops: list[Drop], userID: Utils.MemberID):
     return rollBuild, onSuccess
 
 def AnnounceClaim(drop: Drop, userID: Utils.MemberID) -> None:
-    if any(IsSpecial(drop.guildID, bundle) for bundle in drop.bundles):
-        MainBot.FireAndForget(SendSpecialAlert(drop, userID))
-
-async def SendSpecialAlert(drop: Drop, userID: Utils.MemberID) -> None:
     special = [bundle for bundle in drop.bundles if IsSpecial(drop.guildID, bundle)]
+    if special:
+        MainBot.FireAndForget(SendSpecialAlert(drop, special, userID))
+
+async def SendSpecialAlert(drop: Drop, special: list[Lists.DropBundle], userID: Utils.MemberID) -> None:
     channelID = Utils.GuildConfig(drop.guildID).get("specialChannelID") or drop.channelID
-    if not special or not channelID:
+    if not channelID:
         return
     channel = MainBot.GetClient().get_channel(channelID)
     if channel is None:
@@ -310,17 +311,14 @@ async def SendSpecialAlert(drop: Drop, userID: Utils.MemberID) -> None:
         pass
 
 async def HandleClaim(interaction: discord.Interaction):
-    async def reply(text: str):
-        await Logger.SendInteractionMessage(interaction=interaction, message=text, ephemeral=True)
-
     drop = drops.get(interaction.message.id)
     user = interaction.user
     if drop is None:
-        return await reply(Say(Text.CLAIM_GONE))
+        return await Logger.Reply(interaction, Say(Text.CLAIM_GONE))
     if shuttingDown:
-        return await reply(Say(Text.CLAIM_SHUTDOWN))
+        return await Logger.Reply(interaction, Say(Text.CLAIM_SHUTDOWN))
     if drop.state is not DropState.OPEN:
-        return await reply(Say(Text.CLAIM_ALREADY_CLAIMED if drop.state is DropState.CLAIMED else Text.CLAIM_IN_PROGRESS))
+        return await Logger.Reply(interaction, Say(Text.CLAIM_ALREADY_CLAIMED if drop.state is DropState.CLAIMED else Text.CLAIM_IN_PROGRESS))
     drop.state = DropState.CLAIMING
     try:
         await Profiles.EnsureProfile(drop.guildID, user.id)
@@ -331,15 +329,15 @@ async def HandleClaim(interaction: discord.Interaction):
         await Logger.LogHeadlessError(f"Claim of drop {interaction.message.id} in guild {drop.guildID} failed: {reason}")
         if time.monotonic() >= drop.expiresAt:
             Expire(drop)
-            await EditExpired(drop)
+            await EditDrop(drop)
         else:
             drop.state = DropState.OPEN
             ArmExpiry(drop)
-        return await reply(Say(Text.CLAIM_FAILED, reason=reason))
+        return await Logger.Reply(interaction, Say(Text.CLAIM_FAILED, reason=reason))
 
     drop.state = DropState.CLAIMED
     drops.pop(interaction.message.id, None)
-    await EditClaimed(drop, user.id)
+    await EditDrop(drop, user.id)
     AnnounceClaim(drop, user.id)
 
 async def RollDrop(
@@ -436,16 +434,10 @@ def Expire(drop: Drop) -> None:
     drop.state = DropState.EXPIRED
     drops.pop(drop.message.id, None)
 
-async def EditExpired(drop: Drop) -> None:
+async def EditDrop(drop: Drop, userID: Utils.MemberID | None = None) -> None:
+    claimed = userID is not None
     try:
-        view, files = await Compose([drop], extras=False, expired=True)
-        await drop.message.edit(view=view, attachments=files)
-    except discord.HTTPException:
-        pass
-
-async def EditClaimed(drop: Drop, userID: Utils.MemberID) -> None:
-    try:
-        view, files = await Compose([drop], userID)
+        view, files = await Compose([drop], userID, extras=claimed, expired=not claimed)
         await drop.message.edit(view=view, attachments=files, allowed_mentions=noMentions)
     except discord.HTTPException:
         pass
@@ -458,7 +450,7 @@ def ArmExpiry(drop: Drop) -> None:
         if drop.state is not DropState.OPEN:
             return
         Expire(drop)
-        await EditExpired(drop)
+        await EditDrop(drop)
     MainBot.FireAndForget(expire())
 
 def DropDelay(guildID: Utils.GuildID) -> float:
@@ -537,7 +529,8 @@ async def SendTimedDrop(guild, channelID: Utils.ChannelID) -> None:
     async with sendSemaphore:
         for attempt in range(sendRetries + 1):
             try:
-                await PostDrop(channel, drop)
+                async with asyncio.timeout(sendTimeoutSeconds):
+                    await PostDrop(channel, drop)
                 return
             except asyncio.TimeoutError:
                 ReleaseReservations(drop)
@@ -562,6 +555,6 @@ async def ShutdownDrops():
     if openDrops:
         try:
             async with asyncio.timeout(10):
-                await asyncio.gather(*(EditExpired(drop) for drop in openDrops), return_exceptions=True)
+                await asyncio.gather(*(EditDrop(drop) for drop in openDrops), return_exceptions=True)
         except TimeoutError:
             pass

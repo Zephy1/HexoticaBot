@@ -50,7 +50,7 @@ async def SendInteractionMessage(
         else:
             return await interaction.followup.send(content=message, embed=embed, file=discordFile, files=discordFiles, ephemeral=ephemeral, view=view, allowed_mentions=allowed_mentions, wait=True)
     except Exception as e:
-        await LogError(interaction, interaction.client, f"Error sending interaction message: {e}")
+        await LogError(interaction, f"Error sending interaction message: {e}")
 async def EditInteractionMessage(
     interaction: discord.Interaction,
     message: str = None,
@@ -74,15 +74,17 @@ async def EditInteractionMessage(
         else:
             return await interaction.edit_original_response(content=message, embed=embed, attachments=attachments, view=view)
     except Exception as e:
-        await LogError(interaction, interaction.client, f"Error editing interaction message: {e}")
+        await LogError(interaction, f"Error editing interaction message: {e}")
+
+async def Reply(interaction: discord.Interaction, message: str) -> None:
+    await SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
 
 async def LogInteractionError(
     interaction: discord.Interaction,
-    client: discord.Client,
     message: str,
 ):
     await SendInteractionMessage(interaction, message=Say(Text.COMMAND_ERROR, error=message), ephemeral=True)
-    await LogError(interaction, client, message)
+    await LogError(interaction, message)
 
 def GetUserInfoFromInteraction(interaction):
     user = interaction.user
@@ -116,17 +118,14 @@ def GetCommandInfoFromInteraction(
 guildNameTtlSeconds = 60 * 60
 guildNameFailTtlSeconds = 10 * 60
 guildNames = {}
-async def GetGuildInfoFromInteraction(
-    interaction: discord.Interaction,
-    client: discord.Client,
-):
+async def GetGuildInfoFromInteraction(interaction: discord.Interaction):
     guild = interaction.guild
     guildName = "DM"
     if guild:
         cached = guildNames.get(guild.id)
         if cached is None or cached[0] < time.monotonic():
             try:
-                name = (await client.fetch_guild_preview(guild.id)).name
+                name = (await interaction.client.fetch_guild_preview(guild.id)).name
             except Exception:
                 name = None
             cached = guildNames[guild.id] = (time.monotonic() + (guildNameTtlSeconds if name else guildNameFailTtlSeconds), name)
@@ -156,17 +155,8 @@ def GetChannelInfoFromInteraction(
         "channelID": MakeNameSafe(channelID),
         "channelName": MakeNameSafe(channelName),
     }
-def GetTimestampInfo():
-    timestamp = time.time()
-    now = datetime.datetime.now()
-    timestampString = now.strftime("%Y-%m-%d %H:%M:%S")
-    timestampISO = now.isoformat()
-
-    return {
-        "timestamp": MakeNameSafe(timestamp),
-        "timestampString": MakeNameSafe(timestampString),
-        "timestampISO": MakeNameSafe(timestampISO),
-    }
+def Timestamp() -> str:
+    return MakeNameSafe(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 webhookSendDelaySeconds = 1
 webhookBackoffSeconds = 30
@@ -323,15 +313,13 @@ def ErrorFields(message, errorTraceback: str) -> list[dict]:
 
 async def LogError(
     interaction: discord.Interaction,
-    client,
     message,
 ):
     try:
         userInfo = GetUserInfoFromInteraction(interaction)
-        guildInfo = await GetGuildInfoFromInteraction(interaction, client)
+        guildInfo = await GetGuildInfoFromInteraction(interaction)
         channelInfo = GetChannelInfoFromInteraction(interaction)
         commandInfo = GetCommandInfoFromInteraction(interaction)
-        timestampInfo = GetTimestampInfo()
         errorTraceback = traceback.format_exc()
 
         fields = [
@@ -346,7 +334,7 @@ async def LogError(
         }
 
         logMessage = (
-            f"[{timestampInfo['timestampString']}]"
+            f"[{Timestamp()}]"
             f"User: {userInfo}, "
             f"Guild: {guildInfo}, "
             f"Channel: {channelInfo}, "
@@ -356,7 +344,7 @@ async def LogError(
         )
 
         print(logMessage)
-        WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
+        await asyncio.to_thread(WriteToLogFile, Variables.ERROR_LOG_FILE_PATH, logMessage)
         await SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
     except Exception as e:
         print(f"Error logging error: {e}")
@@ -368,13 +356,12 @@ def SyncLogHeadlessError(message: str):
         return
     print(f"Error: {message}")
     try:
-        WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, f"[{GetTimestampInfo()['timestampString']}]Error: {message}")
+        WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, f"[{Timestamp()}]Error: {message}")
     except Exception:
         pass
 
 async def LogHeadlessError(message: str):
     try:
-        timestampInfo = GetTimestampInfo()
         errorTraceback = traceback.format_exc()
 
         fields = ErrorFields(message, errorTraceback)
@@ -386,27 +373,23 @@ async def LogHeadlessError(message: str):
         }
 
         logMessage = (
-            f"[{timestampInfo['timestampString']}]"
+            f"[{Timestamp()}]"
             f"Error: {message}, "
             f"Traceback: {errorTraceback}"
         )
 
         print(logMessage)
-        WriteToLogFile(Variables.ERROR_LOG_FILE_PATH, logMessage)
+        await asyncio.to_thread(WriteToLogFile, Variables.ERROR_LOG_FILE_PATH, logMessage)
         await SendToWebhooks(Variables.errorLogWebhooks, f"{Variables.defaultBotName} Error Logger", embedData)
     except Exception as e:
         print(f"Error logging error: {e}")
 
-async def LogCommandUsage(
-    interaction: discord.Interaction,
-    client: discord.Client,
-):
+async def LogCommandUsage(interaction: discord.Interaction):
     try:
         userInfo = GetUserInfoFromInteraction(interaction)
-        guildInfo = await GetGuildInfoFromInteraction(interaction=interaction, client=client)
+        guildInfo = await GetGuildInfoFromInteraction(interaction)
         channelInfo = GetChannelInfoFromInteraction(interaction)
         commandInfo = GetCommandInfoFromInteraction(interaction)
-        timestampInfo = GetTimestampInfo()
 
         embedData = {
             "title": f"{userInfo['userDisplayName']} Used Command /{commandInfo['commandName']}",
@@ -418,44 +401,14 @@ async def LogCommandUsage(
         }
 
         logMessage = (
-            f"[{timestampInfo['timestampString']}] "
+            f"[{Timestamp()}] "
             f"User: {userInfo}, "
             f"Guild: {guildInfo}, "
             f"Channel: {channelInfo}, "
             f"Command: {commandInfo}"
         )
 
-        WriteToLogFile(Variables.COMMAND_LOG_FILE_PATH, logMessage)
+        await asyncio.to_thread(WriteToLogFile, Variables.COMMAND_LOG_FILE_PATH, logMessage)
         await SendToWebhooks(Variables.commandLogWebhooks, f"{Variables.defaultBotName} Command Logger", embedData)
     except Exception as e:
         print(f"Error logging command usage: {e}")
-
-async def LogRequest(
-    interaction: discord.Interaction,
-    requestData: dict,
-):
-    userInfo = GetUserInfoFromInteraction(interaction)
-    timestampInfo = GetTimestampInfo()
-    requestType = requestData.get("requestType", "Unknown")
-
-    embedData = {
-        "title": f"{userInfo['userDisplayName']} Submitted {requestType} Request",
-        "color": Variables.defaultColorHex,
-        "fields": [
-            *UserFields(userInfo),
-            Blank(),
-            Header("Request"),
-            *SafeField("Request Type", requestType, True),
-            *SafeField("Request Data", str(requestData), True),
-            Blank(),
-        ],
-    }
-
-    logMessage = (
-        f"[{timestampInfo['timestampString']}] "
-        f"User: {userInfo}, "
-        f"Request: {requestData}"
-    )
-
-    WriteToLogFile(Variables.REQUESTS_LOG_FILE_PATH, logMessage)
-    await SendToWebhooks(Variables.requestsLogWebhooks, f"{Variables.defaultBotName} Request Logger", embedData)

@@ -1,10 +1,10 @@
+import asyncio
 import json
 
-from enum import StrEnum
 from typing import NamedTuple
+from enum import StrEnum
 
 from Database import PersistentUserData
-from Utils.Translation import Say, Text
 from Database import Atomic
 from Game import Upgrades
 from Game import Profiles
@@ -23,6 +23,10 @@ class SellResult(NamedTuple):
     skipped: list[Utils.ItemID]
     coins: Utils.Coins
 
+def ParseSale(snapshot: list[tuple[Utils.ItemID, str]]) -> tuple[dict, dict]:
+    parsed = {itemID: (row, json.loads(row)) for itemID, row in snapshot}
+    return parsed, Lists.index.FindPieces({(item["bundleID"], item["slot"]) for _, item in parsed.values()})
+
 async def SellItems(
     guildID: Utils.GuildID,
     userID: Utils.MemberID,
@@ -33,10 +37,12 @@ async def SellItems(
     await Profiles.EnsureProfile(guildID, userID)
     records: list[dict] = []
 
+    owned = PersistentUserData.persistentUserData.get(scope, {})
+    snapshot = [(itemID, owned[f"item.{itemID}"]) for itemID in dict.fromkeys(itemIDs) if f"item.{itemID}" in owned]
+    parsed, found = await asyncio.to_thread(ParseSale, snapshot)
+
     def build():
-        profile = Profiles.CachedProfile(scope)
-        if profile is None:
-            raise ValueError(Say(Text.NO_PROFILE_USER))
+        profile = Profiles.RequiredProfile(guildID, userID)
         multiplier = Upgrades.SellMultiplier(profile, guildID)
         owned = PersistentUserData.persistentUserData.get(scope, {})
         paid = source is SellSource.PLAYER
@@ -52,7 +58,8 @@ async def SellItems(
             if row is None or itemID in pending:
                 skipped.append(itemID)
                 continue
-            item = json.loads(row)
+            cached = parsed.get(itemID)
+            item = cached[1] if cached is not None and cached[0] == row else json.loads(row)
             record = Items.VoidRecord(itemID, item)
             records.append(record)
             sold.append(itemID)
@@ -62,7 +69,6 @@ async def SellItems(
                 Profiles.AddStat(profile, f"sold.armor.{item['armor']}")
                 Profiles.AddStat(profile, f"sold.slot.{item['slot']}")
             userRows[f"item.{itemID}"] = None
-            appUpdates[f"itemOwner.{guildID}.{itemID}"] = None
             appUpdates[f"appData.void.{guildID}.{itemID}"] = record
 
         if not sold:
@@ -75,6 +81,6 @@ async def SellItems(
 
     def onSuccess():
         for record in records:
-            Lists.AddVoidRecord(guildID, record)
+            Lists.AddVoidRecord(guildID, record, found)
 
     return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False, onSuccess=onSuccess)

@@ -19,11 +19,11 @@ async def Command_Roll(interaction: discord.Interaction):
     channelID = await Utils.RequireChannelID(interaction.channel_id, interaction)
     profile = await Profiles.PeekProfile(guildID, interaction.user.id)
     if profile is not None and Profiles.TotalRolls(profile) < 1:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ROLL_NO_ROLLS), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ROLL_NO_ROLLS))
         return
 
     await interaction.response.defer(thinking=True)
     error = await Drops.RollDrop(guildID, interaction.user.id, channelID, interaction)
     if error is not None:
         await interaction.delete_original_response()
-        await Logger.SendInteractionMessage(interaction=interaction, message=error, ephemeral=True)
+        await Logger.Reply(interaction, error)

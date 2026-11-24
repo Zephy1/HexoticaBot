@@ -8,7 +8,6 @@ from Utils import Variables
 from Game import Inventory
 from Game import Profiles
 from Utils import Utils
-from Utils import Views
 
 class CollectionPanel(InventoryPanel.InventoryPanel):
     readOnly = True
@@ -24,10 +23,7 @@ class CollectionPanel(InventoryPanel.InventoryPanel):
         return Say(Text.COLLECTION_VALUE, coins=Utils.CompactNumber(sum(item.value for item in self.items)))
 
     def ActionButtons(self, selectedCount: int) -> tuple[list[discord.ui.Button], discord.Color]:
-        return [
-            Views.Button(Say(Text.INVENTORY_BUTTON_SEARCH), self.OnSearch),
-            Views.Button(Say(Text.INVENTORY_BUTTON_RESET), self.OnReset, disabled=not self.filters.active),
-        ], Variables.defaultDiscordColor
+        return self.SearchButtons(), Variables.defaultDiscordColor
 
 @MainBot.AppCommandWithAliases(
     MainBot.GetClient().tree,

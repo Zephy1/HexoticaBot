@@ -39,16 +39,12 @@ async def HandleSettingsList(interaction: discord.Interaction, guildID: Utils.Gu
 
 async def HandleSettingsReset(interaction: discord.Interaction, guildID: Utils.GuildID, settingName: Utils.SettingName):
     if settingName not in Utils.GuildConfig(guildID).get("settings", {}):
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETTINGS_NO_OVERRIDE, setting=settingName), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_SETTINGS_NO_OVERRIDE, setting=settingName))
         return
 
     await Utils.SetSetting(guildID, settingName, None)
     value = Utils.GetSettingValueFromGuild(guildID, settingName)
-    await Logger.SendInteractionMessage(
-        interaction=interaction,
-        message=Say(Text.ADMIN_SETTINGS_RESET, setting=settingName, value=Utils.FormatSetting(settingName, value)),
-        ephemeral=True,
-    )
+    await Logger.Reply(interaction, Say(Text.ADMIN_SETTINGS_RESET, setting=settingName, value=Utils.FormatSetting(settingName, value)))
 
 async def ApplySetting(guildID: Utils.GuildID, settingName: Utils.SettingName, text: str) -> str:
     definition = Variables.SETTINGS[settingName]
@@ -68,10 +64,10 @@ async def ApplySetting(guildID: Utils.GuildID, settingName: Utils.SettingName, t
 
 async def HandleSettingsSet(interaction: discord.Interaction, guildID: Utils.GuildID, settingName: Utils.SettingName, value: str | None):
     if value is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETTINGS_VALUE_REQUIRED), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_SETTINGS_VALUE_REQUIRED))
         return
 
-    await Logger.SendInteractionMessage(interaction=interaction, message=await ApplySetting(guildID, settingName, value), ephemeral=True)
+    await Logger.Reply(interaction, await ApplySetting(guildID, settingName, value))
 
 class SettingModal(discord.ui.Modal):
     def __init__(self, panel: "SettingsPanel", name: str):
@@ -180,7 +176,7 @@ async def Command_AdminSettings(
 
     setting = name if name in Variables.SETTINGS else None
     if setting is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.ADMIN_SETTINGS_UNKNOWN), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.ADMIN_SETTINGS_UNKNOWN))
         return
 
     if action.value == "reset":

@@ -1,9 +1,9 @@
 import colorsys
+import asyncio
 import json
 import re
 
-from dataclasses import dataclass
-from types import SimpleNamespace
+from dataclasses import dataclass, field
 from string import capwords
 from enum import StrEnum
 
@@ -155,27 +155,56 @@ async def LoadItems(
         pending = Trading.PendingItems(guildID)
     threshold = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.SPECIAL_ALERT_THRESHOLD)
 
+    if only is None:
+        snapshot = [(key, row) for key, row in rows.items() if key.startswith("item.")]
+    else:
+        snapshot = [(key, rows[key]) for key in (f"item.{itemID}" for itemID in only) if key in rows]
+    return await asyncio.to_thread(ParseItems, snapshot, guildID, multiplier, showcaseSlots, pending, threshold)
+
+async def CountItems(guildID: Utils.GuildID, userID: Utils.MemberID) -> int:
+    rows = await PersistentUserData.Read(Profiles.Scope(guildID, userID))
+    return sum(1 for key in rows if key.startswith("item."))
+
+def ParseItems(
+    snapshot: list[tuple[str, str]],
+    guildID: Utils.GuildID,
+    multiplier: float,
+    showcaseSlots: dict[Utils.ItemID, int],
+    pending: set[Utils.ItemID],
+    threshold: float,
+) -> list[InventoryItem]:
     items = []
-    for key, row in rows.items():
-        if not key.startswith("item."):
-            continue
+    for key, row in snapshot:
         itemID = key.removeprefix("item.")
-        data = json.loads(row)
-        rarity = data["rarity"]
-        items.append(InventoryItem(
-            itemID=itemID,
-            armor=str(data["armor"]),
-            slot=str(data["slot"]),
-            hexCode=data["hex"],
-            name=Items.PieceName(SimpleNamespace(name=data["name"])),
-            rarity=rarity,
-            claimedAt=data["claimedAt"],
-            value=Drops.SellValue(guildID, rarity, multiplier),
-            showcaseSlot=showcaseSlots.get(itemID),
-            locked=itemID in pending,
-            special=rarity >= threshold,
-        ))
+        items.append(ItemFromRow(itemID, row, guildID, multiplier, pending, threshold, showcaseSlots.get(itemID)))
     return items
+
+def ItemFromRow(
+    itemID: Utils.ItemID,
+    row: str,
+    guildID: Utils.GuildID,
+    multiplier: float,
+    pending: set[Utils.ItemID],
+    threshold: float,
+    showcaseSlot: int | None = None,
+    ownerID: Utils.MemberID = 0,
+) -> InventoryItem:
+    data = json.loads(row)
+    return InventoryItem(
+        itemID=itemID,
+        armor=str(data["armor"]),
+        slot=str(data["slot"]),
+        hexCode=data["hex"],
+        name=Items.PieceName(data["name"]),
+        rarity=data["rarity"],
+        claimedAt=data["claimedAt"],
+        value=Drops.SellValue(guildID, data["rarity"], multiplier),
+        showcaseSlot=showcaseSlot,
+        locked=itemID in pending,
+        special=data["rarity"] >= threshold,
+        bundleID=data.get("bundleID"),
+        ownerID=ownerID,
+    )
 
 def HueKey(item: InventoryItem) -> tuple:
     red, green, blue = (int(item.hexCode[number:number + 2], 16) / 255 for number in (0, 2, 4))
@@ -223,8 +252,8 @@ async def LoadSelected(
     if not wanted:
         return []
     profile = Profiles.CachedProfile(Profiles.Scope(guildID, userID))
-    items = await LoadItems(guildID, userID, profile, set())
-    return Arrange([item for item in items if item.itemID in wanted], InventoryFilter(), SortMode.RARITY_DESC)
+    items = await LoadItems(guildID, userID, profile, set(), wanted)
+    return Arrange(items, InventoryFilter(), SortMode.RARITY_DESC)
 
 def ShowcaseSets(items: list[InventoryItem], profile: dict, guildID: Utils.GuildID) -> list[tuple[list[InventoryItem], bool]]:
     byID = {item.itemID: item for item in items}

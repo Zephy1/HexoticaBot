@@ -1,4 +1,3 @@
-import asyncio
 import json
 import math
 import time
@@ -9,6 +8,7 @@ from Database import PersistentUserData
 from Utils.Translation import Say, Text
 from Database import PersistentData
 from Game import TemporaryBuffs
+from Database import Atomic
 from Game import Upgrades
 from Utils import Utils
 
@@ -35,21 +35,16 @@ def CachedProfile(scope: Utils.UserScope) -> dict | None:
     row = PersistentUserData.persistentUserData.get(scope, {}).get("profile")
     return None if row is None else json.loads(row)
 
-async def AddRolls(
-    userData: dict,
+def ReturnRolls(
     scope: Utils.UserScope,
-    rows: list,
     amount: int,
     key: str = "rolls",
-) -> str | None:
-    row = userData.get("profile")
-    if row is None:
-        return None
-    profile = json.loads(row)
+) -> dict:
+    profile = CachedProfile(scope)
+    if profile is None:
+        return {}
     profile[key] = profile.get(key, 0) + amount
-    row = await asyncio.to_thread(json.dumps, profile)
-    rows.append(("userData", f"{scope}:profile", row))
-    return row
+    return ProfileUpdate(scope, profile)
 
 def PeriodIDs() -> dict[str, int]:
     days = Utils.CurrentHour() // 24
@@ -110,46 +105,36 @@ async def HeldRolls(scope: Utils.UserScope) -> int:
 
 async def HoldRoll(guildID: Utils.GuildID, userID: Utils.MemberID) -> tuple[dict, bool] | None:
     scope = Scope(guildID, userID)
-    async with PersistentUserData.userLocks[scope]:
-        userData = await PersistentUserData.LoadLocked(scope)
-        row = userData.get("profile")
-        profile = json.loads(row) if row is not None else DefaultProfile(guildID)
-        ApplyRefill(profile, guildID, scope)
+
+    async def build():
+        profile = ClaimProfile(guildID, userID)
         bonus = profile["rolls"] < 1
         if bonus and profile.get("bonusRolls", 0) < 1:
-            return None
+            return {}, {}, None
         profile["bonusRolls" if bonus else "rolls"] -= 1
-        row = await asyncio.to_thread(json.dumps, profile)
         held = await HeldRolls(scope)
-        await PersistentData.WriteRows([
-            ("userData", f"{scope}:profile", row),
-            ("pendingRoll", scope, json.dumps(held + 1)),
-        ])
-        userData["profile"] = row
-        return profile, bonus
+        return ProfileUpdate(scope, profile), {f"pendingRoll.{scope}": held + 1}, (profile, bonus)
+
+    return await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
 
 async def ReleaseRoll(guildID: Utils.GuildID, userID: Utils.MemberID, bonus: bool = False) -> None:
     scope = Scope(guildID, userID)
-    async with PersistentUserData.userLocks[scope]:
-        userData = await PersistentUserData.LoadLocked(scope)
+
+    async def build():
         held = await HeldRolls(scope)
         if held < 1:
-            return
-        rows = [("pendingRoll", scope, None if held == 1 else json.dumps(held - 1))]
-        profileRow = await AddRolls(userData, scope, rows, 1, "bonusRolls" if bonus else "rolls")
-        await PersistentData.WriteRows(rows)
-        if profileRow is not None:
-            userData["profile"] = profileRow
+            return {}, {}, None
+        return ReturnRolls(scope, 1, "bonusRolls" if bonus else "rolls"), {f"pendingRoll.{scope}": None if held == 1 else held - 1}, None
+
+    await Atomic.AtomicUpdate(guildID, [scope], build, useCommitLock=False)
 
 async def RecoverPendingRolls() -> None:
     for scope, pending in (await PersistentData.LoadCollection("pendingRoll")).items():
-        async with PersistentUserData.userLocks[scope]:
-            userData = await PersistentUserData.LoadLocked(scope)
-            rows = [("pendingRoll", scope, None)]
-            profileRow = await AddRolls(userData, scope, rows, int(pending))
-            await PersistentData.WriteRows(rows)
-            if profileRow is not None:
-                userData["profile"] = profileRow
+        await Atomic.AtomicUpdate(
+            int(scope.partition("-")[0]), [scope],
+            lambda: (ReturnRolls(scope, int(pending)), {f"pendingRoll.{scope}": None}, None),
+            useCommitLock=False,
+        )
 
 def EffectiveBaseRolls(profile: dict, guildID: Utils.GuildID) -> int:
     baseRolls = Utils.GetSettingValueFromGuild(guildID, Utils.Setting.BASE_ROLLS_PER_HOUR)
@@ -257,16 +242,13 @@ async def EditShowcase(guildID: Utils.GuildID, userID: Utils.MemberID, edit) -> 
         edit(profile)
         return profile
 
-    await PersistentUserData.ModifyUserData(scope, "profile", modify)
+    await Atomic.ModifyUserData(scope, "profile", modify)
 
 def ApplyRefill(
     profile: dict,
     guildID: Utils.GuildID,
     scope: Utils.UserScope | None = None,
 ) -> bool:
-    if "since" not in profile:
-        rows = PersistentUserData.persistentUserData.get(scope, {})
-        profile["since"] = min((json.loads(row)["claimedAt"] for key, row in rows.items() if key.startswith("item.")), default=int(time.time()))
     nowHour = Utils.CurrentHour()
     hours = nowHour - profile["lastRefillHour"]
     if hours <= 0:
@@ -295,13 +277,21 @@ async def EnsureProfile(guildID: Utils.GuildID, userID: Utils.MemberID) -> dict:
         ApplyRefill(profile, guildID, scope)
         return profile
 
-    return await PersistentUserData.ModifyUserData(scope, "profile", refill)
+    return await Atomic.ModifyUserData(scope, "profile", refill)
 
 async def PeekProfile(guildID: Utils.GuildID, userID: Utils.MemberID) -> dict | None:
     scope = Scope(guildID, userID)
     profile = await PersistentUserData.GetUserDataType(scope, "profile")
     if profile is not None:
         ApplyRefill(profile, guildID, scope)
+    return profile
+
+def RequiredProfile(guildID: Utils.GuildID, userID: Utils.MemberID, missing: Text = Text.NO_PROFILE_USER) -> dict:
+    scope = Scope(guildID, userID)
+    profile = CachedProfile(scope)
+    if profile is None:
+        raise ValueError(Say(missing))
+    ApplyRefill(profile, guildID, scope)
     return profile
 
 def ClaimProfile(guildID: Utils.GuildID, userID: Utils.MemberID) -> dict:

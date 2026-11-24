@@ -11,6 +11,7 @@ from typing import NamedTuple
 
 from Game import ArmorImages
 from Utils import Variables
+from Utils import Logger
 from Utils import Utils
 from Game import Items
 
@@ -70,6 +71,7 @@ lootRadius = 6
 lootPath = Variables.ARMOR_IMAGES_PATH
 emojiPattern = re.compile(r"^<a?:(\w+):(\d+)>$")
 emojis: dict[str, Image.Image] = {}
+missingEmojis: set[str] = set()
 
 class Token(NamedTuple):
     word: str
@@ -113,14 +115,14 @@ def S(value: float) -> int:
     return round(value * scale)
 
 @lru_cache(maxsize=None)
-def Font(kind: str, size: int) -> ImageFont.FreeTypeFont:
+def Font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default(size)
 
 def Measure(text: str, kind: str, size: float) -> float:
-    return Font(kind, S(size)).getlength(text) / scale
+    return Font(S(size)).getlength(text) / scale
 
 def DrawText(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, kind: str, size: float, fill: tuple, height: float = lineHeight) -> None:
-    draw.text((S(x), S(y + height / 2)), text, font=Font(kind, S(size)), fill=fill, anchor="lm", stroke_width=int(kind == "Bold"), stroke_fill=fill)
+    draw.text((S(x), S(y + height / 2)), text, font=Font(S(size)), fill=fill, anchor="lm", stroke_width=int(kind == "Bold"), stroke_fill=fill)
 
 def Glass(canvas: Image.Image, box: tuple, radius: float, fill: tuple, outline: tuple | None = None) -> None:
     x0, y0, x1, y1 = (S(value) for value in box)
@@ -210,7 +212,7 @@ def DrawStar(draw: ImageDraw.ImageDraw, x: float, y: float, size: float, fill: t
     draw.polygon(points, fill=fill)
 
 def MakeTitle(piece) -> Title:
-    chip, rarity, name = f"#{piece.hex}", Items.FormatRarity(piece.rarity), Items.PieceName(piece)
+    chip, rarity, name = f"#{piece.hex}", Items.FormatRarity(piece.rarity), Items.PieceName(piece.name)
     return Title(
         name=name,
         chip=chip,
@@ -318,8 +320,10 @@ def LoadEmojis(bundles: list) -> None:
     for emojiID in wanted:
         try:
             emojis[emojiID] = Image.open(os.path.join(Variables.ARMOR_IMAGES_PATH, f"emoji_{emojiID}.png")).convert("RGBA")
-        except Exception:
-            pass
+        except Exception as e:
+            if emojiID not in missingEmojis:
+                missingEmojis.add(emojiID)
+                Utils.SyncStartCoroutine(Logger.LogHeadlessError(f"Emoji image {emojiID} could not be loaded: {e!r}"))
 
 def Fit(text: str, kind: str, size: float, maxWidth: float) -> str:
     while len(text) > 1 and Measure(text, kind, size) > maxWidth:
@@ -334,7 +338,7 @@ def LootIcon(name: str, path: str) -> Image.Image:
         tile = Image.new("RGBA", (side, side), (0, 0, 0, 0))
         tileDraw = ImageDraw.Draw(tile)
         tileDraw.rounded_rectangle((0, 0, side - 1, side - 1), radius=S(lootRadius), fill=quoteBarColor)
-        tileDraw.text((side / 2, side / 2), name[0], font=Font("Bold", S(24)), fill=mutedColor, anchor="mm")
+        tileDraw.text((side / 2, side / 2), name[0], font=Font(S(24)), fill=mutedColor, anchor="mm")
         return tile
     return image.resize((side, side), Image.NEAREST if max(image.size) <= side else Image.LANCZOS)
 

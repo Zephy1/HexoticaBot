@@ -8,7 +8,7 @@ class Text(StrEnum):
     NOT_ALLOWED = "You are not allowed to use this command."
     BLACKLISTED_USER = "😢"
     BOT_BANNED_TITLE = "Bot Banned"
-    GUILD_NOT_SET_UP = "This server isn't set up yet. Run \\`</admin setup:1570974124229001216>\\`."
+    GUILD_NOT_SET_UP = "This server isn't set up yet. Run \\`{cmdSetup}\\`."
     COMMAND_ERROR = "Unexpected error occurred: {error}"
     NOT_IN_GUILD = "This command can only be used in a server."
     NOT_A_MEMBER = "That user isn't in this server."
@@ -281,7 +281,7 @@ class Text(StrEnum):
     SHOWCASE_USER = "Whose showcase to view."
     SHOWCASE_TITLE = "## <@{user}>'s showcase"
     SHOWCASE_EMPTY = "This showcase is empty."
-    SHOWCASE_EMPTY_SELF = "Your showcase is empty. Use `</showcase edit:1573141141015232612>` first."
+    SHOWCASE_EMPTY_SELF = "Your showcase is empty. Use `{cmdShowcaseEdit}` first."
     SHOWCASE_EDIT_DESCRIPTION = "Add, change, or remove your showcase sets."
     SHOWCASE_EDIT_TITLE = "## Edit showcase"
     SHOWCASE_SLOT_OPTION = "Slot {slot} \u2022 {armor} \u2022 {count} piece{s}"
@@ -427,5 +427,9 @@ class Text(StrEnum):
     SETTING_BEACON_BONUS_LABEL = "Beacon Luck Multiplier"
     SETTING_BEACON_BONUS_DESCRIPTION = "Luck multiplier given by server beacons."
 
+commandNames = {
+    "cmdSetup": "admin setup",
+}
+commandMentions = {key: f"/{name}" for key, name in commandNames.items()}
 def Say(key: Text, **values: str | int | float) -> str:
     return key.format(**values)

@@ -77,12 +77,12 @@ class SellPanel(InventoryPanel.InventoryPanel):
         if result.skipped:
             message += Say(Text.SELL_BULK_SKIPPED, count=len(result.skipped), s=Utils.PluralS(len(result.skipped)))
         await self.Show(interaction)
-        await Logger.SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
+        await Logger.Reply(interaction, message)
 
 async def SellOne(interaction: discord.Interaction, guildID: Utils.GuildID, itemID: str) -> None:
     parsed = Items.ParseItemID(itemID)
     if parsed is None:
-        await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.GLOBAL_ITEM_ID_INVALID, itemID=itemID), ephemeral=True)
+        await Logger.Reply(interaction, Say(Text.GLOBAL_ITEM_ID_INVALID, itemID=itemID))
         return
 
     normalizedID = parsed.itemID
@@ -93,7 +93,7 @@ async def SellOne(interaction: discord.Interaction, guildID: Utils.GuildID, item
         message = Say(Text.SELL_PENDING, itemID=normalizedID)
     else:
         message = Say(Text.SELL_NOT_OWNED, itemID=normalizedID)
-    await Logger.SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
+    await Logger.Reply(interaction, message)
 
 @MainBot.AppCommandWithAliases(
     MainBot.GetClient().tree,

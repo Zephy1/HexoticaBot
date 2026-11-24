@@ -9,7 +9,6 @@ from discord import app_commands
 from typing import NamedTuple
 from string import capwords
 
-from Database import PersistentUserData
 from Utils.Translation import Say, Text
 from Database import PersistentAppData
 from Database import PersistentData
@@ -137,8 +136,8 @@ lootFloor = min(item.price for item in lootTable)
 def FormatRarity(rarity: float) -> str:
     return f"{rarity:g}"
 
-def PieceName(piece) -> str:
-    words = capwords(piece.name.replace("_", " ")).split()
+def PieceName(name: str) -> str:
+    words = capwords(name.replace("_", " ")).split()
     if len(words) > 1 and words[-2] in (words[-1], "Pants"):
         words = words[:-1]
     return " ".join(words)
@@ -279,15 +278,15 @@ def CounterKey(
 ) -> str:
     return f"itemCounter.{guildID}.{itemType}.{hexCode}"
 
-def AllocateWorking(guildID: Utils.GuildID, pieces: list[Lists.BundlePiece]):
+def AllocateWorking(guildID: Utils.GuildID, pieces: list[Lists.BundlePiece]) -> tuple[list[Utils.ItemID], dict]:
     working: dict[tuple[Utils.ItemType, Utils.HexCode], int] = {}
-    allocated = []
+    itemIDs = []
     for piece in pieces:
         itemType = ItemType(piece.armor, piece.slot)
         index = working.get((itemType, piece.hex)) or PersistentAppData.GetData(CounterKey(guildID, itemType, piece.hex), 1)
         working[(itemType, piece.hex)] = index + 1
-        allocated.append((itemType, piece.hex, index, FormatItemID(piece.armor, piece.slot, piece.hex, index)))
-    return allocated, working
+        itemIDs.append(FormatItemID(piece.armor, piece.slot, piece.hex, index))
+    return itemIDs, working
 
 def CounterUpdates(
     guildID: Utils.GuildID,
@@ -314,14 +313,11 @@ def ItemRow(
 
 def AddItems(
     guildID: Utils.GuildID,
-    userID: Utils.MemberID,
     sources: list[tuple[Lists.BundlePiece, Lists.DropBundle]],
 ) -> tuple[dict, dict, list[Utils.ItemID]]:
-    allocated, working = AllocateWorking(guildID, [piece for piece, _ in sources])
-    itemIDs = [entry[3] for entry in allocated]
+    itemIDs, working = AllocateWorking(guildID, [piece for piece, _ in sources])
     userItems = {f"item.{itemID}": ItemRow(piece, bundle) for itemID, (piece, bundle) in zip(itemIDs, sources)}
-    appUpdates = {f"itemOwner.{guildID}.{itemID}": userID for itemID in itemIDs}
-    appUpdates.update((f"appData.{key}", value) for key, value in CounterUpdates(guildID, working).items())
+    appUpdates = {f"appData.{key}": value for key, value in CounterUpdates(guildID, working).items()}
     return userItems, appUpdates, itemIDs
 
 async def GiveItem(
@@ -332,26 +328,9 @@ async def GiveItem(
 ) -> Utils.ItemID:
     scope = Profiles.Scope(guildID, userID)
     def build():
-        userItems, appUpdates, itemIDs = AddItems(guildID, userID, [(piece, bundle)])
+        userItems, appUpdates, itemIDs = AddItems(guildID, [(piece, bundle)])
         return {scope: userItems}, appUpdates, itemIDs[0]
     return await Atomic.AtomicUpdate(guildID, [scope], build)
-
-def CachedItemRow(scope: Utils.UserScope, itemID: Utils.ItemID) -> dict | None:
-    row = PersistentUserData.persistentUserData.get(scope, {}).get(f"item.{itemID}")
-    return json.loads(row) if row is not None else None
-
-async def ReadOne(collection: str, key: str):
-    value = await PersistentData.ReadRow(collection, key)
-    return None if value is None else json.loads(value)
-
-async def GetItemRow(scope: Utils.UserScope, itemID: Utils.ItemID) -> dict | None:
-    return await ReadOne("userData", f"{scope}:item.{itemID}")
-
-async def GetItemOwner(
-    guildID: Utils.GuildID,
-    itemID: Utils.ItemID,
-) -> Utils.MemberID | None:
-    return await ReadOne("itemOwner", f"{guildID}.{itemID}")
 
 def VoidRecord(itemID: Utils.ItemID, item: dict) -> dict:
     return {

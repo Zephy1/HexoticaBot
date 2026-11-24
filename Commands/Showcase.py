@@ -175,8 +175,7 @@ class ShowcasePanel(InventoryPanel.InventoryPanel):
             ], discord.Color.red()
         return [
             Views.Button(Say(Text.SHOWCASE_BUTTON_CLEAR_ALL), self.OnClearAll, discord.ButtonStyle.danger, disabled=not self.assign),
-            Views.Button(Say(Text.INVENTORY_BUTTON_SEARCH), self.OnSearch),
-            Views.Button(Say(Text.INVENTORY_BUTTON_RESET), self.OnReset, disabled=not self.filters.active),
+            *self.SearchButtons(),
         ], Variables.defaultDiscordColor
 
     @Views.ButtonCallback
@@ -203,7 +202,7 @@ class ShowcasePanel(InventoryPanel.InventoryPanel):
             full = True
         await self.Show(interaction)
         if full:
-            await Logger.SendInteractionMessage(interaction=interaction, message=Say(Text.SHOWCASE_TOO_MANY, max=self.capacity), ephemeral=True)
+            await Logger.Reply(interaction, Say(Text.SHOWCASE_TOO_MANY, max=self.capacity))
 
     @Views.ButtonCallback
     async def OnClearSlot(self, interaction: discord.Interaction):

@@ -133,12 +133,6 @@ async def CloseTrade(
     except discord.HTTPException:
         pass
 
-async def Reply(
-    interaction: discord.Interaction,
-    message: str,
-) -> None:
-    await Logger.SendInteractionMessage(interaction=interaction, message=message, ephemeral=True)
-
 async def Guard(
     interaction: discord.Interaction,
     states: tuple[TradeState, ...],
@@ -146,11 +140,11 @@ async def Guard(
 ) -> TradeData | None:
     trade = tradesByMessage.get(interaction.message.id)
     if trade is None or trade.state not in states:
-        await Reply(interaction, Say(Text.TRADE_NOT_PENDING))
+        await Logger.Reply(interaction, Say(Text.TRADE_NOT_PENDING))
         return None
     allowed = trade.Members() if role is None else (getattr(trade, role),)
     if interaction.user.id not in allowed:
-        await Reply(interaction, Say(Text.TRADE_OWN_REQUEST if interaction.user.id in trade.Members() else Text.TRADE_NOT_YOURS))
+        await Logger.Reply(interaction, Say(Text.TRADE_OWN_REQUEST if interaction.user.id in trade.Members() else Text.TRADE_NOT_YOURS))
         return None
     Touch(trade)
     return trade
@@ -192,7 +186,7 @@ def Lock(
     if not any(trade.items.values()) and not any(trade.coins.values()):
         return False
     trade.ready.add(userID)
-    if trade.ready >= set(trade.Members()):
+    if len(trade.ready) == 2:
         trade.state = TradeState.EXECUTING
     return True
 
@@ -202,12 +196,7 @@ def ExecuteBuild(trade: TradeData):
 
     def build():
         scopes = {uid: Profiles.Scope(guildID, uid) for uid in members}
-        profiles = {}
-        for uid, scope in scopes.items():
-            profile = Profiles.CachedProfile(scope)
-            if profile is None:
-                raise ValueError(Say(Text.TRADE_NO_PROFILE))
-            profiles[uid] = profile
+        profiles = {uid: Profiles.RequiredProfile(guildID, uid, Text.TRADE_NO_PROFILE) for uid in members}
 
         for uid in members:
             if profiles[uid]["coins"] < trade.coins[uid]:
@@ -224,7 +213,6 @@ def ExecuteBuild(trade: TradeData):
                     raise ValueError(Say(Text.TRADE_NOT_OWNER, giver=giver, itemID=itemID))
                 userUpdates[scopes[giver]][f"item.{itemID}"] = None
                 userUpdates[scopes[taker]][f"item.{itemID}"] = json.loads(row)
-                appUpdates[f"itemOwner.{guildID}.{itemID}"] = taker
 
         for uid in members:
             profile = profiles[uid]
@@ -255,10 +243,10 @@ async def Execute(
         trade.state = TradeState.FAILED
         reason = Say(Text.TRADE_FAILED_REASON, error=str(e))
         await CloseTrade(trade, Say(Text.TRADE_FAILED_TITLE), reason)
-        await Reply(interaction, reason)
+        await Logger.Reply(interaction, reason)
         return
     trade.state = TradeState.DONE
-    await Reply(interaction, Say(Text.TRADE_DONE_REPLY))
+    await Logger.Reply(interaction, Say(Text.TRADE_DONE_REPLY))
     await trade.view.Finish()
 
 async def ShutdownTrades() -> None:
@@ -272,21 +260,10 @@ async def ShutdownTrades() -> None:
     except TimeoutError:
         pass
 
-async def Resolve(
-    interaction: discord.Interaction,
-    states: tuple[TradeState, ...],
-    role: str | None,
-    state: TradeState,
-    title: Text,
-    body: Text,
-    reply: Text,
-) -> None:
-    trade = await Guard(interaction, states, role)
+async def HandleCancel(interaction: discord.Interaction) -> None:
+    trade = await Guard(interaction, openStates)
     if trade is None:
         return
-    trade.state = state
-    await CloseTrade(trade, Say(title), Say(body, userID=interaction.user.id))
-    await Reply(interaction, Say(reply))
-
-async def HandleCancel(interaction: discord.Interaction) -> None:
-    await Resolve(interaction, openStates, None, TradeState.CANCELLED, Text.TRADE_CANCELLED_TITLE, Text.TRADE_CANCELLED_BODY, Text.TRADE_CANCELLED_REPLY)
+    trade.state = TradeState.CANCELLED
+    await CloseTrade(trade, Say(Text.TRADE_CANCELLED_TITLE), Say(Text.TRADE_CANCELLED_BODY, userID=interaction.user.id))
+    await Logger.Reply(interaction, Say(Text.TRADE_CANCELLED_REPLY))
